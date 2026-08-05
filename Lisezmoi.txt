@@ -2,21 +2,31 @@ Codeur - agent IA de codage local, hors ligne
 =============================================
 
 Contenu de ce dossier :
-  - Codeur.exe  : l'agent prêt à l'emploi (double-clic pour démarrer)
+  - Codeur.exe  : l'agent pret a l'emploi (double-clic pour demarrer)
 
-Préparation unique sur chaque poste (avec Internet, ~2 minutes) :
-  1. Installer Ollama depuis  https://ollama.com/download  puis relancer
-     le poste si demandé.
-  2. Télécharger le modèle (une seule fois, ~2 Go) :
-     ollama pull llama3.2:latest
-  3. (Alternative, plus complète)  ollama pull qwen2.5:latest
+Premier lancement sur un poste (Internet requis une seule fois) :
+  Codeur.exe installe tout seul, sans droits administrateur :
+    1. Ollama (moteur IA local)  ~1,6 Go de telechargement
+    2. Le modele llama3.2        ~2 Go de telechargement
+    3. Il cree une icone "Codeur" sur le bureau
+  Suivez la progression dans la fenetre noire qui s'ouvre.
 
-Utilisation :
-  - Double-cliquer sur Codeur.exe : une console s'ouvre, puis le chat
-    s'affiche automatiquement dans le navigateur (http://127.0.0.1:3000).
-  - Une fois le modèle chargé, l'agent fonctionne 100 % hors ligne :
-    aucun accès Internet, tout se passe sur le poste.
-  - Fermer la console pour arrêter l'agent.
+Lancements suivants :
+  Double-cliquez sur l'icone "Codeur" du bureau : l'agent demarre
+  comme une application normale (plus de telechargement, plus de setup).
+  Le chat s'affiche dans le navigateur (http://127.0.0.1:3000).
 
-Astuce : l'agent travaille dans le dossier où Codeur.exe est lancé
-(ses fichiers d'exemple y seront créés).
+Hors ligne :
+  Une fois le modele charge, l'agent fonctionne 100 % hors ligne :
+  aucun acces Internet, tout se passe sur le poste.
+  Fermez la fenetre noire pour arreter l'agent.
+
+Premiere fois sur un poste de l'ecole :
+  - Windows SmartScreen peut afficher "programme non reconnu" :
+    cliquez sur "Plus d'informations" puis "Executer quand meme".
+    (Normal : logiciel non signe.)
+  - Windows Pare-feu peut demander l'autorisation pour Ollama :
+    autorisez (il n'ecoute que sur le poste, adresse 127.0.0.1).
+
+Pre-requis materiel : Windows 10/11, 8 Go de RAM minimum,
+plus environ 6 Go libres sur le disque.

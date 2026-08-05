@@ -35,7 +35,7 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 echo Construction en cours, patientez une a deux minutes...
-python -m PyInstaller --onefile --console --name Codeur --add-data "%~dp0public;public" --distpath dist --workpath build --specpath build demarrer.py
+python -m PyInstaller --onefile --console --name Codeur --icon "%~dp0codeur.ico" --add-data "%~dp0public;public" --distpath dist --workpath build --specpath build demarrer.py
 if errorlevel 1 (
   echo [ERREUR] La construction a echoue.
   pause

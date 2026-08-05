@@ -94,6 +94,18 @@ demarrer-agent.bat   # à chaque fois : serveur + navigateur
 > ℹ️ L'installation demande Internet **une seule fois** (téléchargement du
 > modèle, ~2 Go). L'**utilisation** ensuite est 100 % hors ligne.
 
+**Option C — exécutable autonome `Codeur.exe`** (aucun Python, aucun terminal) :
+1. Copiez `dist\Codeur.exe` (ou `Codeur-etudiant.zip`) sur le poste.
+2. Double-cliquez : la première fois, il **installe tout seul** Ollama
+   (~1,6 Go) + le modèle (~2 Go), puis crée une **icône « Codeur » sur le
+   bureau**.
+3. Ensuite, on lance l'agent en double-cliquant sur l'icône, comme une
+   application normale — chaque lancement vérifie seulement que tout est là
+   (aucune réinstallation).
+
+Reconstruire l'exécutable après une modification de l'agent :
+`creer-executable.bat` (un double-clic, PyInstaller requis une fois).
+
 ### Modèles recommandés (selon la machine)
 
 | Modèle | Taille | Pourquoi |
