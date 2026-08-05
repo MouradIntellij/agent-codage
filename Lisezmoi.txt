@@ -1,0 +1,22 @@
+Codeur - agent IA de codage local, hors ligne
+=============================================
+
+Contenu de ce dossier :
+  - Codeur.exe  : l'agent prêt à l'emploi (double-clic pour démarrer)
+
+Préparation unique sur chaque poste (avec Internet, ~2 minutes) :
+  1. Installer Ollama depuis  https://ollama.com/download  puis relancer
+     le poste si demandé.
+  2. Télécharger le modèle (une seule fois, ~2 Go) :
+     ollama pull llama3.2:latest
+  3. (Alternative, plus complète)  ollama pull qwen2.5:latest
+
+Utilisation :
+  - Double-cliquer sur Codeur.exe : une console s'ouvre, puis le chat
+    s'affiche automatiquement dans le navigateur (http://127.0.0.1:3000).
+  - Une fois le modèle chargé, l'agent fonctionne 100 % hors ligne :
+    aucun accès Internet, tout se passe sur le poste.
+  - Fermer la console pour arrêter l'agent.
+
+Astuce : l'agent travaille dans le dossier où Codeur.exe est lancé
+(ses fichiers d'exemple y seront créés).

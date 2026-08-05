@@ -15,3 +15,6 @@ workspace/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Build etudiant
+Codeur-etudiant.zip
