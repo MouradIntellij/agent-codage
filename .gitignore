@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Exemple de documents de travail générés pendant les tests
+workspace/
+
+# OS
+Thumbs.db
+Desktop.ini
