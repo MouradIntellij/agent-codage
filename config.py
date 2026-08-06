@@ -12,9 +12,10 @@ import os
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 # Modèle utilisé (doit savoir faire du "tool calling").
-# Par défaut llama3.2:latest : 2x-3x plus rapide sur CPU seul (pas de GPU).
-# Pour une qualité maximale : qwen2.5:latest (3x plus lent).
-MODEL = os.environ.get("AGENT_MODEL", "llama3.2:latest")
+# Par défaut qwen2.5:latest : le meilleur compromis CPU/qualité pour
+# mathématiques, résumés, explications pédagogiques et tool-calling fiable.
+# Pour la vitesse : llama3.2:latest (2x-3x plus rapide, mais moins fiable).
+MODEL = os.environ.get("AGENT_MODEL", "qwen2.5:latest")
 
 # Température du modèle (0 = déterministe, 1 = créatif)
 TEMPERATURE = 0.2
@@ -34,9 +35,10 @@ NUM_CTX = int(os.environ.get("AGENT_NUM_CTX", "8192"))
 KEEP_ALIVE = int(os.environ.get("AGENT_KEEP_ALIVE", "1800"))
 
 # Modèle utilisé. Pour un ordinateur SANS carte graphique (CPU seul) :
-#   - llama3.2:latest  (~14 tokens/s) rapide, déjà installé         <-- défaut
-#   - qwen2.5:latest   (~7  tokens/s) qualité + tool calling fiables
-#   - qwen2.5:3b       (à télécharger) bon compromis vitesse/qualité
+#   - qwen2.5:latest  (~7  tokens/s) qualité : maths, résumés, pédagogie,
+#                      tool calling fiable, bon français        <-- défaut
+#   - llama3.2:latest (~14 tokens/s) rapide, déjà installé
+#   - gemma2:9b       (à télécharger) très bon niveau de langue, plus lent
 # Surcharger avec la variable d'environnement AGENT_MODEL.
 
 # --- Sécurité / limites -----------------------------------------------------

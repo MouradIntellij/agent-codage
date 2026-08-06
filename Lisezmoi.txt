@@ -7,7 +7,7 @@ Contenu de ce dossier :
 Premier lancement sur un poste (Internet requis une seule fois) :
   Codeur.exe installe tout seul, sans droits administrateur :
     1. Ollama (moteur IA local)  ~1,6 Go de telechargement
-    2. Le modele llama3.2        ~2 Go de telechargement
+    2. Le modele qwen2.5         ~4,7 Go de telechargement
     3. Il cree une icone "Codeur" sur le bureau
   Suivez la progression dans la fenetre noire qui s'ouvre.
 
@@ -29,4 +29,4 @@ Premiere fois sur un poste de l'ecole :
     autorisez (il n'ecoute que sur le poste, adresse 127.0.0.1).
 
 Pre-requis materiel : Windows 10/11, 8 Go de RAM minimum,
-plus environ 6 Go libres sur le disque.
+plus environ 8 Go libres sur le disque.

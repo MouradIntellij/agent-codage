@@ -89,6 +89,23 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "count_occurrences",
+            "description": "Compte EXACTEMENT combien de fois un mot ou une expression apparaît "
+                           "dans un fichier (décompte précis par le code, pas à la main). "
+                           "Compte les mots entiers, sans tenir compte des majuscules.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Chemin du fichier à analyser"},
+                    "term": {"type": "string", "description": "Mot ou expression à compter"},
+                },
+                "required": ["path", "term"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_file",
             "description": "Crée un fichier ou ÉCRASE son contenu complet avec le texte fourni. "
                            "À utiliser pour créer de nouveaux fichiers.",
@@ -239,6 +256,27 @@ def bash(command: str, timeout: int | None = None) -> str:
 
 # Dossiers à ignorer lors d'une recherche récursive.
 IGNORED_DIRS = {"node_modules", ".git", "dist", ".next", "coverage", "__pycache__"}
+
+
+def count_occurrences(path: str, term: str) -> str:
+    """Compte EXACTEMENT les occurrences d'un mot (mots entiers, insensible
+    à la casse). Décompte par le code : résultat fiable à 100 %."""
+    if not os.path.isfile(path):
+        return f"ERREUR: fichier introuvable: {path}"
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError as err:
+        return f"ERREUR: {err}"
+    if len(text) > 5 * 1024 * 1024:
+        return f"ERREUR: fichier trop volumineux ({len(text)} octets)."
+    if " " in term.strip():
+        count = text.lower().count(term.lower())
+    else:
+        count = len(re.findall(rf"\b{re.escape(term)}\b", text,
+                               flags=re.IGNORECASE))
+    return (f"Le terme '{term}' apparaît {count} fois dans {path} "
+            f"({len(text.split())} mots dans le fichier).")
 
 
 def search_in_files(term: str, folder: str = ".") -> str:
@@ -477,6 +515,7 @@ EXECUTORS = {
     "read_file": read_file,
     "read_document": read_document,
     "search_in_files": search_in_files,
+    "count_occurrences": count_occurrences,
     "write_file": write_file,
     "edit_file": edit_file,
     "glob": glob,

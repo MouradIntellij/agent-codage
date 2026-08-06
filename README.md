@@ -15,8 +15,8 @@ commandes, voir le résultat, puis **continuer seul** jusqu'à terminer la tâch
 
 ```bash
 # 1. Installer Ollama (une fois) : https://ollama.com  puis:
-ollama pull llama3.2:latest   # rapide sur CPU ; qwen2.5:latest = plus de qualité
-
+ollama pull qwen2.5:latest   # défaut : le meilleur compromis CPU/qualité
+#    (llama3.2:latest = plus rapide mais moins fiable)
 # 2. Lancer le serveur Ollama (l'app le fait automatiquement)
 ollama serve
 
@@ -110,9 +110,9 @@ Reconstruire l'exécutable après une modification de l'agent :
 
 | Modèle | Taille | Pourquoi |
 |---|---|---|
-| `llama3.2:latest` | ~2 Go | Rapide sur CPU seul (~14 tok/s), défaut du projet |
-| `qwen2.5:latest` | ~4,7 Go | Meilleure qualité / tool-calling fiable, mais ~2-3x plus lent |
-| `qwen2.5:3b` | ~2 Go | Bon compromis vitesse/qualité (à télécharger) |
+| `qwen2.5:latest` | ~4,7 Go | **Défaut** : maths, résumés, pédagogie, tool-calling fiable (~7 tok/s CPU) |
+| `llama3.2:latest` | ~2 Go | Rapide sur CPU seul (~14 tok/s), mais moins fiable |
+| `gemma2:9b` | ~6 Go | Très bon niveau de langue, à télécharger, plus lent |
 
 Changer de modèle : variable d'environnement `AGENT_MODEL`, ou éditer `config.py`.
 
@@ -164,6 +164,7 @@ paramètres) + **fonction Python** (ce qui s'exécute réellement).
 | `read_file` | lire un fichier (lignes numérotées, refuse les binaires) |
 | `read_document` | extraire le texte de **Word (.docx), PowerPoint (.pptx), Excel (.xlsx), PDF (.pdf)** et fichiers texte |
 | `search_in_files` | chercher un mot/expression dans un dossier → `fichier:n°ligne: contenu` |
+| `count_occurrences` | compter **exactement** (mots entiers, sans casse) combien de fois un mot apparaît dans un fichier |
 | `write_file` | créer / écraser un fichier |
 | `edit_file` | remplacer une portion exacte |
 | `glob` | trouver des fichiers par motif |

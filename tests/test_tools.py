@@ -112,6 +112,25 @@ class ToolsTests(unittest.TestCase):
         result = tools.search_in_files("zizou", self.dir)
         self.assertIn("Aucune occurrence", result)
 
+    def test_count_occurrences_word_exact(self):
+        tools.write_file(os.path.join(self.dir, "notes.txt"),
+                         "Le logarithme naturel. Les logarithmes des nombres. "
+                         "logarithme, encore logarithme !\n")
+        result = tools.count_occurrences(os.path.join(self.dir, "notes.txt"),
+                                         "logarithme")
+        self.assertIn("apparaît 3 fois", result)
+
+    def test_count_occurrences_missing_file(self):
+        result = tools.count_occurrences(os.path.join(self.dir, "nope.txt"), "x")
+        self.assertIn("fichier introuvable", result)
+
+    def test_count_occurrences_phrase(self):
+        tools.write_file(os.path.join(self.dir, "text.txt"),
+                         "bonjour le monde\nmonde entier\nbonjour le monde\n")
+        result = tools.count_occurrences(os.path.join(self.dir, "text.txt"),
+                                         "bonjour le monde")
+        self.assertIn("apparaît 2 fois", result)
+
     def test_read_document_docx(self):
         file = os.path.join(self.dir, "doc.docx")
         xml = ("<w:document><w:body>"

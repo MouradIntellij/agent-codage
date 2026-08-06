@@ -26,7 +26,7 @@ import webbrowser
 
 import web
 
-MODEL = "llama3.2:latest"
+MODEL = "qwen2.5:latest"  # le meilleur compromis CPU/qualité
 OLLAMA_URL = "https://ollama.com/download/OllamaSetup.exe"
 OLLAMA_EXE = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
