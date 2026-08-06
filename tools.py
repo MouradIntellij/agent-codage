@@ -164,7 +164,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "expression": {"type": "string",
-                                   "description": "La fonction mathématique EN TEXTE BRUT, copiée telle quelle (ex: 'ln(x+1)')"},
+                                   "description": "La fonction mathématique EN TEXTE BRUT, copiée telle quelle (ex: 'ln(x+1)' ou '∫ln(x+1)dx' — l'outil gère le symbole ∫ et le dx)"},
                     "operation": {"type": "string",
                                   "description": "Type de calcul: 'integrale' (défaut), 'derivee', 'equation', 'limite', 'simplifier', 'factoriser'"},
                     "variable": {"type": "string", "description": "Variable d'intégration (défaut: x)"},
@@ -390,6 +390,23 @@ def _by_parts_steps(f, sym, sympy):
             f"Résultat : {sym}·ln({g_s}) − ({v_s}) = {f_s} + C")
 
 
+def _strip_integral(s: str) -> tuple[str, str | None]:
+    """Retire le symbole '∫' éventuel et la différentielle finale.
+
+    Les étudiants écrivent '∫ln(x+1)dx' ou '∫ ln(x+1) dx' : ces notations
+    doivent devenir l'expression propre 'ln(x+1)'. Retourne (expression
+    propre, variable inférée depuis la différentielle ou None).
+    """
+    s = s.replace("∫", "").replace("∬", "").strip()
+    m = re.search(r"d\s*\(\s*([A-Za-z])\s*\)\s*$", s)   # d(x), d x entre parenthèses
+    if m:
+        return s[:m.start()].strip(), m.group(1)
+    m = re.search(r"\bd\s*([A-Za-z])\s*$", s)           # dx, d x, dx final
+    if m:
+        return s[:m.start()].strip(), m.group(1)
+    return s, None
+
+
 def calcul_symbolique(expression: str, operation: str = "integrale",
                       variable: str = "x", point: str = "oo") -> str:
     """Calcule et VÉRIFIE une expression mathématique avec SymPy.
@@ -408,6 +425,12 @@ def calcul_symbolique(expression: str, operation: str = "integrale",
     if not expr:
         return ("ERREUR: expression vide. Passez SEULEMENT la fonction, "
                 "ex: expression='ln(x+1)'.")
+    # Nettoie la notation '∫ln(x+1)dx' -> 'ln(x+1)' (et infère la variable).
+    expr, var_inf = _strip_integral(expr)
+    if var_inf:
+        variable = var_inf
+    if not expr:
+        return "ERREUR: expression vide après nettoyage. Passez la fonction, ex: 'ln(x+1)'."
     sym = sympy.symbols(variable)
     locals_map = {variable: sym, "ln": sympy.log, "log": sympy.log,
                   "e": sympy.E, "pi": sympy.pi, "oo": sympy.oo}
@@ -423,6 +446,13 @@ def calcul_symbolique(expression: str, operation: str = "integrale",
                 f"Passez SEULEMENT la fonction en texte brut, ex: 'ln(x+1)', "
                 f"'x**2*exp(x)' ou l'équation 'x^2 - 5*x + 6 = 0'.")
     f = sympy.simplify(f)
+    # Garde anti-interprétation sauvage : si '∫', 'dx' ou une intégrale non
+    # résolue traînent encore, l'expression n'a pas été comprise correctement.
+    if ("∫" in str(f) or re.search(r"\bdx\b", str(f))
+            or "Integral(" in str(f)):
+        return (f"ERREUR: expression '{expression}' mal interprétée (SymPy a "
+                f"lu '{f}'). Passez la fonction sans le symbole ∫ ni le dx, "
+                f"ex: expression='ln(x+1)'.")
 
     if op == "derivee":
         r = sympy.simplify(sympy.diff(f, sym))
@@ -466,6 +496,9 @@ def calcul_symbolique(expression: str, operation: str = "integrale",
 
     # Intégrale (cas par défaut aussi).
     r = sympy.integrate(f, sym)
+    if "Integral(" in str(r):
+        return (f"ERREUR: SymPy n'a pas su intégrer '{expr}'. "
+                f"Vérifiez l'expression ou simplifiez-la.")
     check = sympy.simplify(sympy.diff(r, sym) - f)
     verif = "CORRECT (la dérivée du résultat redonne exactement f(x))" \
         if check == 0 else f"DOUTEUX: il reste {check}"

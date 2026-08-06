@@ -232,6 +232,22 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(tools._prepare_expr("ln(x+1)"), "ln(x+1)")      # intact
         self.assertEqual(tools._prepare_expr("(x+1)(x-1)"), "(x+1)*(x-1)")
 
+    def test_strip_integral_notation(self):
+        self.assertEqual(tools._strip_integral("∫ln(x+1)dx"), ("ln(x+1)", "x"))
+        self.assertEqual(tools._strip_integral("∫ ln(x + 1) dx"), ("ln(x + 1)", "x"))
+        self.assertEqual(tools._strip_integral("ln(x+1)"), ("ln(x+1)", None))
+        self.assertEqual(tools._strip_integral("∫(x^2 + 1)dx"), ("(x^2 + 1)", "x"))
+
+    def test_calcul_symbolique_integrale_notation_entier(self):
+        # L'étudiant écrit '∫ln(x+1)dx' : l'outil nettoie et calcule juste.
+        out = tools.calcul_symbolique("∫ln(x+1)dx")
+        self.assertIn("x*log(x + 1) - x + log(x + 1)", out)
+        self.assertIn("CORRECT", out)
+        self.assertNotIn("dx*", out)
+        # Une intégrale non résolue doit renvoyer une ERREUR (pas un faux CORRECT).
+        out2 = tools.calcul_symbolique("∫dx ln(x+1)")
+        self.assertIn("ERREUR", out2)
+
     def test_calcul_symbolique_integrale_ln_x_plus_1(self):
         out = tools.calcul_symbolique("ln(x+1)", "integrale")
         self.assertIn("log(x + 1)", out)
