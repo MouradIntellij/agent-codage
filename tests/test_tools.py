@@ -265,5 +265,60 @@ class LlmTests(unittest.TestCase):
         self.assertIn("CORRECT", out)
 
 
+class ReadImageTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="agent_img_")
+        self.png = os.path.join(self.dir, "capture.png")
+        with open(self.png, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_image_introuvable(self):
+        self.assertIn("ERREUR", tools.read_image(os.path.join(self.dir, "nope.png")))
+
+    def test_pas_une_image(self):
+        txt = os.path.join(self.dir, "note.txt")
+        with open(txt, "w", encoding="utf-8") as fh:
+            fh.write("bonjour")
+        self.assertIn("pas une image", tools.read_image(txt))
+
+    def test_avec_modele_vision(self):
+        # Un modèle de vision est disponible : on doit obtenir sa description.
+        tools._available_vision_model = lambda: "llava:7b"   # noqa: SLF001
+        tools._vision_describe = lambda path, model: (           # noqa: SLF001
+            f"Description (modèle {model}) : un écran de calcul")
+        try:
+            out = tools.read_image(self.png)
+        finally:
+            del tools._available_vision_model
+            del tools._vision_describe
+        self.assertIn("Description (modèle llava:7b)", out)
+
+    def test_avec_ocr_seulement(self):
+        tools._available_vision_model = lambda: None             # noqa: SLF001
+        tools._ocr_text = lambda path: "Texte OCR : 2 + 2 = 4"   # noqa: SLF001
+        try:
+            out = tools.read_image(self.png)
+        finally:
+            del tools._available_vision_model
+            del tools._ocr_text
+        self.assertIn("Texte OCR", out)
+        self.assertIn("2 + 2 = 4", out)
+
+    def test_ni_vision_ni_ocr(self):
+        tools._available_vision_model = lambda: None             # noqa: SLF001
+        tools._ocr_text = lambda path: ""                        # noqa: SLF001
+        try:
+            out = tools.read_image(self.png)
+        finally:
+            del tools._available_vision_model
+            del tools._ocr_text
+        self.assertIn("image", out.lower())
+        self.assertIn("llava", out)
+        self.assertNotIn("ERREUR", out)
+
+
 if __name__ == "__main__":
     unittest.main()

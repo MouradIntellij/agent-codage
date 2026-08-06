@@ -153,6 +153,21 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "read_image",
+            "description": "Décrit une IMAGE (jpg, png, bmp, webp...) : ce qu'elle "
+                           "montre et le texte visible. À utiliser pour TOUTE "
+                           "image jointe ou tout chemin d'image. Fonctionne hors "
+                           "ligne (modèle de vision local ou OCR).",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Chemin du fichier image"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "calcul_symbolique",
             "description": "Calcule et VÉRIFIE une expression mathématique avec SymPy "
                            "(intégrale, dérivée, équation, limite, simplification). "
@@ -307,6 +322,116 @@ def bash(command: str, timeout: int | None = None) -> str:
         output = output[:4000] + "\n...[sortie tronquée]"
     return (f"$ {command}  ({elapsed:.1f}s, code de sortie {proc.returncode})\n"
             f"{output}".rstrip())
+
+
+# --------------------------------------------------------------------------
+# Lecture d'une IMAGE : modèle de vision Ollama si installé, sinon OCR
+# (Tesseract), sinon un message qui explique comment activer la vision.
+# --------------------------------------------------------------------------
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".jfif"}
+VISION_MODEL_HINTS = ("llava", "qwen2.5vl", "qwen2-vl", "llama3.2-vision",
+                      "minicpm-v", "moondream", "bakllava")
+
+
+def _available_vision_model() -> str | None:
+    """Trouve un modèle de vision déjà téléchargé dans Ollama (ou None)."""
+    import requests as req
+    try:
+        data = req.get(f"{config.OLLAMA_URL}/api/tags", timeout=5).json()
+    except Exception:
+        return None
+    names = [m.get("name", "") for m in data.get("models", [])]
+    for hint in VISION_MODEL_HINTS:
+        for n in names:
+            if n.startswith(hint):
+                return n
+    return None
+
+
+def _vision_describe(path: str, model: str) -> str:
+    """Envoie l'image au modèle de vision local et renvoie sa description."""
+    import base64
+    import requests as req
+    with open(path, "rb") as fh:
+        b64 = base64.b64encode(fh.read()).decode("ascii")
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": ("Décris cette image en français : ce qu'elle montre, "
+                        "et transcris TOUT le texte visible mot pour mot "
+                        "(utile pour une capture d'écran, une photo de "
+                        "document ou un exercice)."),
+            "images": [b64],
+        }],
+        "stream": False,
+        "options": {"num_ctx": 4096},
+    }
+    try:
+        resp = req.post(f"{config.OLLAMA_URL}/api/chat", json=payload, timeout=240)
+    except Exception as err:
+        return f"ERREUR: le modèle de vision '{model}' n'a pas répondu: {err}"
+    if resp.status_code != 200:
+        return (f"ERREUR: modèle de vision '{model}' "
+                f"(HTTP {resp.status_code}): {resp.text[:300]}")
+    resp.encoding = "utf-8"
+    text = (resp.json().get("message", {}).get("content") or "").strip()
+    if not text:
+        return f"ERREUR: le modèle de vision '{model}' n'a rien retourné."
+    return (f"Description de l'image {os.path.basename(path)} "
+            f"(modèle {model}) :\n{text}")
+
+
+def _ocr_text(path: str) -> str:
+    """Extrait le texte d'une image via Tesseract, si installé (optionnel)."""
+    try:
+        from PIL import Image
+        import pytesseract
+    except ImportError:
+        return ""
+    try:
+        text = pytesseract.image_to_string(Image.open(path), lang="fra+eng")
+    except Exception:
+        return ""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    return (f"Texte extrait de l'image {os.path.basename(path)} par OCR "
+            f"(Tesseract) :\n{text[:DOC_TEXT_LIMIT]}")
+
+
+def read_image(path: str) -> str:
+    """Décrit une image (contenu + texte visible).
+
+    Ordre des moyens disponibles, 100 % hors ligne :
+      1. modèle de vision local déjà installé dans Ollama (llava, ...) ;
+      2. OCR Tesseract (s'il est installé avec pytesseract + PIL) ;
+      3. sinon, un message qui explique comment activer la vision.
+    """
+    path = _existing_path(path)
+    if not os.path.isfile(path):
+        return f"ERREUR: image introuvable: {path}"
+    if os.path.splitext(path)[1].lower() not in IMAGE_EXTS:
+        return (f"ERREUR: '{path}' n'est pas une image reconnue "
+                f"({', '.join(sorted(IMAGE_EXTS))}).")
+    size = os.path.getsize(path)
+    if size > 10 * 1024 * 1024:
+        return "ERREUR: image trop volumineuse (> 10 Mo)."
+
+    vision = _available_vision_model()
+    if vision:
+        return _vision_describe(path, vision)
+    ocr = _ocr_text(path)
+    if ocr:
+        return ocr
+    return (f"Le fichier '{path}' est une image ({size:,} o). Impossible de la "
+            f"DÉCRIRE hors ligne : aucun modèle de vision ni OCR installé.\n"
+            f"Pour activer la vision, installez l'un des deux :\n"
+            f"  1. ollama pull llava:7b   (modèle de vision local)\n"
+            f"  2. Tesseract OCR + pytesseract + Pillow (texte des images)\n"
+            f"En attendant, je peux résumer le fichier par son nom ou lire "
+            f"tout document avec read_document.")
 
 
 # --------------------------------------------------------------------------
@@ -799,6 +924,7 @@ EXECUTORS = {
     "glob": glob,
     "bash": bash,
     "calcul_symbolique": calcul_symbolique,
+    "read_image": read_image,
 }
 
 

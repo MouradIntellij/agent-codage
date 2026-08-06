@@ -17,6 +17,7 @@ Pour ouvrir à toute la classe (réseau local) :
     à une classe de confiance, jamais sur Internet public.
 """
 
+import base64
 import json
 import os
 import secrets
@@ -27,6 +28,7 @@ from pathlib import Path
 
 import agent
 import config
+import tools
 
 # L'agent travaille dans l'espace de travail déclaré (comme main.py).
 os.makedirs(config.WORKSPACE, exist_ok=True)
@@ -40,6 +42,54 @@ HTML_PATH = Path(__file__).resolve().parent / "public" / "index.html"
 # Mémoire de session : id de session -> historique des messages.
 sessions: dict[str, list] = {}
 _lock = threading.Lock()
+
+# --- pièces jointes (fichiers téléversés depuis le navigateur) --------------
+
+UPLOAD_DIR_NAME = "uploads"
+MAX_FILE_SIZE = 8 * 1024 * 1024  # 8 Mo par fichier
+MAX_FILES = 8                    # 8 fichiers par message
+_SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            " .-_éàèêëïîôûùçÉÀÈÊËÏÎÔÛÙÇ()")
+
+
+def _safe_filename(name: str) -> str:
+    """Garde un nom de fichier inoffensif (supprime tout chemin ou caractère
+    dangereux). Retourne une chaîne vide si rien ne survit."""
+    base = os.path.basename((name or "").replace("\\", "/")).strip()
+    clean = "".join(c for c in base if c in _SAFE).strip().rstrip(". ")
+    return clean
+
+
+def _save_attachments(sid: str, files: list) -> list[str]:
+    """Sauvegarde les pièces jointes dans uploads/<session>/ et renvoie la
+    liste des chemins absolus enregistrés."""
+    if not files:
+        return []
+    if len(files) > MAX_FILES:
+        raise ValueError(f"Trop de fichiers joints (max {MAX_FILES}).")
+    sess_dir = os.path.join(os.path.abspath(config.WORKSPACE),
+                            UPLOAD_DIR_NAME, sid)
+    os.makedirs(sess_dir, exist_ok=True)
+    saved: list[str] = []
+    for f in files:
+        name = _safe_filename(f.get("name") or "")
+        raw = f.get("data") or ""
+        if not name or not raw:
+            continue
+        try:
+            blob = base64.b64decode(raw, validate=True)
+        except Exception:
+            continue
+        if not blob:
+            continue
+        if len(blob) > MAX_FILE_SIZE:
+            raise ValueError(f"Fichier trop volumineux '{name}' "
+                             f"(max {MAX_FILE_SIZE // (1024 * 1024)} Mo).")
+        dest = os.path.join(sess_dir, name)
+        with open(dest, "wb") as fh:
+            fh.write(blob)
+        saved.append(dest)
+    return saved
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -153,13 +203,34 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         message = str(data.get("message", "")).strip()
-        if not message:
+        files = data.get("files") or []
+        if not message and not files:
             self._json(400, {"error": "Message vide."})
             return
 
+        sid = self._session_id()
+
+        # Pièces jointes -> fichiers sur le disque -> mentionnés au modèle.
+        attachments: list[str] = []
+        try:
+            paths = _save_attachments(sid, files)
+        except ValueError as err:
+            self._json(400, {"error": str(err)})
+            return
+        for path in paths:
+            is_img = os.path.splitext(path)[1].lower() in tools.IMAGE_EXTS
+            kind = "image" if is_img else "fichier"
+            attachments.append(f"- {path}  ({kind}, {os.path.getsize(path):,} o)")
+        if attachments:
+            block = ("\n".join(attachments)
+                     + "\n\n[Tu DOIS lire chaque pièce jointe pour répondre : "
+                       "read_document / read_file pour un document, read_image "
+                       "pour une image. Ne devine jamais leur contenu.]")
+            message = (message + "\n\n" if message else "") + block
+
         wants_stream = "text/event-stream" in (self.headers.get("Accept") or "")
 
-        sid = self._session_id()
+        history = None
         with _lock:
             history = list(sessions.get(sid, []))
 

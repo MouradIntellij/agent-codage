@@ -41,6 +41,10 @@ KEEP_ALIVE = int(os.environ.get("AGENT_KEEP_ALIVE", "1800"))
 #                      les appels d'outil de calcul (réponse vide)
 #   - gemma2:9b       (à télécharger) très bon niveau de langue, plus lent
 # Surcharger avec la variable d'environnement AGENT_MODEL.
+# Les IMAGES jointes sont lues automatiquement : l'agent cherche un modèle de
+# vision déjà installé (llava, qwen2.5vl, llama3.2-vision...), sinon Tesseract
+# OCR (pytesseract + Pillow), sinon il explique comment les activer.
+# Pour ajouter la vision :  ollama pull llava:7b
 
 # --- Sécurité / limites -----------------------------------------------------
 # Nombre maximum d'étapes "agent -> outil -> agent" avant de s'arrêter.

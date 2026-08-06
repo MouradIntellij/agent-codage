@@ -201,6 +201,15 @@ Chaque navigateur reçoit un cookie = sa propre mémoire de session. La page
 On peut l'utiliser en parallèle du terminal : les deux ne partagent pas la
 même mémoire, c'est par design.
 
+**Pièces jointes** : le bouton 📎 (ou un glisser-déposer) envoie des fichiers
+et des images avec la question. Ils sont sauvegardés dans `uploads/<session>/`
+et l'agent les lit avec ses outils. Pour les **images**, l'ordre des moyens
+disponibles (100 % hors ligne) est :
+1. un modèle de vision déjà installé dans Ollama (`llava`, `qwen2.5vl`,
+   `llama3.2-vision`, ...) — activable avec `ollama pull llava:7b` ;
+2. sinon l'OCR Tesseract (`pytesseract` + `Pillow`), s'il est installé ;
+3. sinon un message qui explique comment activer la vision.
+
 ---
 
 ## Points pédagogiques forts (à montrer en classe)
