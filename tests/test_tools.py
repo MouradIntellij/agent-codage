@@ -211,6 +211,13 @@ class LlmTests(unittest.TestCase):
         self.assertIn("arguments", cleaned["tool_calls"][0]["function"])
         self.assertIsInstance(cleaned["tool_calls"][0]["function"]["arguments"], str)
 
+    def test_repair_path_duplicated_root(self):
+        self.assertEqual(tools._repair_path(r"C:\LaSalle\C:\LaSalle\f.pdf"),
+                         r"C:\LaSalle\f.pdf")
+        self.assertEqual(tools._repair_path(r"C:\LaSalle\f.pdf"), r"C:\LaSalle\f.pdf")
+        self.assertEqual(tools._repair_path(""), "")
+        self.assertEqual(tools._repair_path(r"D:\a\D:\a\x\y.txt"), r"D:\a\x\y.txt")
+
 
 if __name__ == "__main__":
     unittest.main()

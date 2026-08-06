@@ -177,7 +177,31 @@ TOOLS = [
 # 2) Implémentations Python des outils
 # --------------------------------------------------------------------------
 
+def _repair_path(path: str) -> str:
+    """Corrige un chemin à racine dupliquée (erreur de copier-coller).
+
+    Ex: 'C:\\LaSalle\\C:\\LaSalle\\f.pdf' -> 'C:\\LaSalle\\f.pdf'
+    On garde la racine la plus à droite (le dernier 'X:\\').
+    """
+    if not path:
+        return path
+    norm = path.replace("/", "\\")
+    roots = re.findall(r"[A-Za-z]:\\", norm)
+    if len(roots) >= 2:
+        return norm[norm.rfind(roots[-1]):]
+    return path
+
+
+def _existing_path(path: str) -> str:
+    """Renvoie un chemin existant (réparé si besoin), sinon le chemin d'origine."""
+    if os.path.exists(path):
+        return path
+    repaired = _repair_path(path)
+    return repaired if os.path.exists(repaired) else path
+
+
 def list_dir(path: str = ".") -> str:
+    path = _existing_path(path)
     if not os.path.isdir(path):
         return f"ERREUR: '{path}' n'est pas un dossier."
     rows = []
@@ -190,8 +214,17 @@ def list_dir(path: str = ".") -> str:
 
 
 def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:
+    path = _existing_path(path)
     if not os.path.isfile(path):
-        return f"ERREUR: fichier introuvable: {path}"
+        parent = os.path.dirname(os.path.abspath(path))
+        try:
+            listing = "\n".join(
+                f"  - {name}" for name in sorted(os.listdir(parent))[:40])
+        except OSError:
+            listing = ""
+        hint = (f"\nListe du dossier {parent}:\n{listing}" if listing else "")
+        return (f"ERREUR: fichier introuvable: {path}"
+                f"\nVérifiez le chemin ou cherchez le fichier.{hint}")
     limit = limit or config.MAX_READ_LINES
     try:
         with open(path, "rb") as fh:
@@ -482,8 +515,17 @@ def _extract_pdf_text(data: bytes) -> str:
 
 def read_document(path: str) -> str:
     """Extrait le texte lisible d'un document : Word, PowerPoint, Excel, PDF, texte."""
+    path = _existing_path(path)
     if not os.path.isfile(path):
-        return f"ERREUR: fichier introuvable: {path}"
+        parent = os.path.dirname(os.path.abspath(path))
+        try:
+            listing = "\n".join(
+                f"  - {name}" for name in sorted(os.listdir(parent))[:40])
+        except OSError:
+            listing = ""
+        hint = (f"\nListe du dossier {parent}:\n{listing}" if listing else "")
+        return (f"ERREUR: fichier introuvable: {path}"
+                f"\nVérifiez le chemin ou cherchez le fichier.{hint}")
     ext = os.path.splitext(path)[1].lower().lstrip(".")
     try:
         if ext == "docx":

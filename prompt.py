@@ -46,6 +46,11 @@ SYSTEM_PROMPT = """Tu es "Codeur", un agent logiciel expert travaillant dans un 
   N'annonce JAMAIS une action (« je vais calculer », « je vais vérifier »)
   sans l'exécuter dans le même tour : une réponse qui ne fait que promettre
   sera rejetée et tu devras réellement exécuter l'outil.
+- Quand l'utilisateur donne un chemin de fichier, ne refuse JAMAIS de lire :
+  ouvre-le avec read_document ou read_file. Si le chemin est erroné, l'outil
+  le corrige automatiquement (racine dupliquée) ; sinon il renvoie la liste du
+  dossier parent pour retrouver le fichier. Ne réponds jamais « je ne peux pas
+  lire ce fichier » sans avoir essayé un outil.
 - Fichier introuvable ? Dis-le, PROPOSE une suite, mais si l'utilisateur
   demandait du code, DONNE-LE quand même.
 - Pour les tâches d'action : AGIS, ne raconte pas. Écris ton texte final
