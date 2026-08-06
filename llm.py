@@ -48,6 +48,7 @@ def chat(messages: list, tools: list | None = None) -> dict:
     if response.status_code != 200:
         raise RuntimeError(f"Erreur HTTP {response.status_code}: {response.text}")
 
+    response.encoding = "utf-8"  # Ollama répond toujours en UTF-8 (les accents)
     data = response.json()
     return _clean_message(data["choices"][0]["message"])
 
@@ -132,6 +133,11 @@ def chat_stream(messages: list, tools: list | None = None,
 
     if response.status_code != 200:
         raise RuntimeError(f"Erreur HTTP {response.status_code}: {response.text}")
+
+    # Sans cela, `requests` suppose ISO-8859-1 pour les flux text/event-stream
+    # et les accents UTF-8 du modèle arrivent brouillés (« crÃ©ons » au lieu de
+    # « créons »). Ollama sert toujours de l'UTF-8 : on le force.
+    response.encoding = "utf-8"
 
     content_parts: list[str] = []
     tool_calls = None
