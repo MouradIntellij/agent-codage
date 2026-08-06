@@ -21,6 +21,19 @@ Hors ligne :
   aucun acces Internet, tout se passe sur le poste.
   Fermez la fenetre noire pour arreter l'agent.
 
+Pieces jointes (fichiers et images) :
+  Dans le chat web, le bouton 📎 (ou glisser-deposer) permet d'envoyer
+  un fichier ou une image avec votre question (max 8 fichiers de 8 Mo).
+  Les documents (PDF, Word, Excel, PowerPoint, texte, code) sont lus
+  automatiquement. Pour les IMAGES, trois cas possibles :
+    1. Le modele de vision est installe  -> l'agent decrit l'image et
+       transcrit le texte visible.
+    2. L'OCR Tesseract est installe      -> l'agent lit le texte de l'image.
+    3. Aucun des deux                    -> l'agent explique comment activer
+       la vision et propose une alternative.
+  Pour activer la vision (facultatif) :  ollama pull llava:7b
+  (commande dans un terminal, ~5 Go a telecharger une seule fois).
+
 Premiere fois sur un poste de l'ecole :
   - Windows SmartScreen peut afficher "programme non reconnu" :
     cliquez sur "Plus d'informations" puis "Executer quand meme".
