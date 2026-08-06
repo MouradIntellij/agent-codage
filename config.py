@@ -45,6 +45,8 @@ KEEP_ALIVE = int(os.environ.get("AGENT_KEEP_ALIVE", "1800"))
 # vision déjà installé (llava, qwen2.5vl, llama3.2-vision...), sinon Tesseract
 # OCR (pytesseract + Pillow), sinon il explique comment les activer.
 # Pour ajouter la vision :  ollama pull llava:7b
+# Forcer un modèle de vision précis (même non auto-détecté, ex. gemma3:27b) :
+VISION_MODEL = os.environ.get("AGENT_VISION_MODEL", "")
 
 # --- Sécurité / limites -----------------------------------------------------
 # Nombre maximum d'étapes "agent -> outil -> agent" avant de s'arrêter.

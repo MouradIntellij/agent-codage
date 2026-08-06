@@ -11,8 +11,10 @@ import unittest
 import zipfile
 import zlib
 
+import config
 import llm
 import tools
+import unittest.mock
 
 
 def make_zip(entries: list[tuple[str, str]]) -> bytes:
@@ -286,38 +288,76 @@ class ReadImageTests(unittest.TestCase):
 
     def test_avec_modele_vision(self):
         # Un modèle de vision est disponible : on doit obtenir sa description.
-        tools._available_vision_model = lambda: "llava:7b"   # noqa: SLF001
-        tools._vision_describe = lambda path, model: (           # noqa: SLF001
-            f"Description (modèle {model}) : un écran de calcul")
-        try:
+        fake = unittest.mock.Mock(return_value="Description (modèle llava:7b) : "
+                                               "un écran de calcul")
+        with unittest.mock.patch.object(tools, "_available_vision_model",
+                                        return_value="llava:7b"), \
+             unittest.mock.patch.object(tools, "_vision_describe", fake):
             out = tools.read_image(self.png)
-        finally:
-            del tools._available_vision_model
-            del tools._vision_describe
         self.assertIn("Description (modèle llava:7b)", out)
 
     def test_avec_ocr_seulement(self):
-        tools._available_vision_model = lambda: None             # noqa: SLF001
-        tools._ocr_text = lambda path: "Texte OCR : 2 + 2 = 4"   # noqa: SLF001
-        try:
+        with unittest.mock.patch.object(tools, "_available_vision_model",
+                                        return_value=None), \
+             unittest.mock.patch.object(tools, "_ocr_text",
+                                        return_value="Texte OCR : 2 + 2 = 4"):
             out = tools.read_image(self.png)
-        finally:
-            del tools._available_vision_model
-            del tools._ocr_text
         self.assertIn("Texte OCR", out)
         self.assertIn("2 + 2 = 4", out)
 
     def test_ni_vision_ni_ocr(self):
-        tools._available_vision_model = lambda: None             # noqa: SLF001
-        tools._ocr_text = lambda path: ""                        # noqa: SLF001
-        try:
+        with unittest.mock.patch.object(tools, "_available_vision_model",
+                                        return_value=None), \
+             unittest.mock.patch.object(tools, "_ocr_text", return_value=""):
             out = tools.read_image(self.png)
-        finally:
-            del tools._available_vision_model
-            del tools._ocr_text
         self.assertIn("image", out.lower())
         self.assertIn("llava", out)
         self.assertNotIn("ERREUR", out)
+
+
+class VisionModelDetectionTests(unittest.TestCase):
+    def test_modele_force_prioritaire(self):
+        # AGENT_VISION_MODEL pointe vers gemma3:27b, présent dans Ollama.
+        import requests
+        with unittest.mock.patch("requests.get") as fake:
+            fake.return_value.json.return_value = {"models": [
+                {"name": "llama3.2:latest"}, {"name": "gemma3:27b"}]}
+            old = config.VISION_MODEL
+            try:
+                config.VISION_MODEL = "gemma3:27b"
+                self.assertEqual(tools._available_vision_model(), "gemma3:27b")
+            finally:
+                config.VISION_MODEL = old
+
+    def test_sans_modele_force_retombe_sur_les_indices(self):
+        import requests
+        with unittest.mock.patch("requests.get") as fake:
+            fake.return_value.json.return_value = {"models": [
+                {"name": "llama3.2:latest"}, {"name": "llava:7b"}]}
+            old = config.VISION_MODEL
+            try:
+                config.VISION_MODEL = ""
+                self.assertEqual(tools._available_vision_model(), "llava:7b")
+            finally:
+                config.VISION_MODEL = old
+
+    def test_aucun_modele_vision(self):
+        import requests
+        with unittest.mock.patch("requests.get") as fake:
+            fake.return_value.json.return_value = {"models": [
+                {"name": "llama3.2:latest"}, {"name": "gemma3:27b"}]}
+            old = config.VISION_MODEL
+            try:
+                config.VISION_MODEL = ""
+                self.assertIsNone(tools._available_vision_model())
+            finally:
+                config.VISION_MODEL = old
+
+    def test_ollama_injoignable(self):
+        import requests
+        with unittest.mock.patch("requests.get",
+                                 side_effect=requests.exceptions.ConnectionError):
+            self.assertIsNone(tools._available_vision_model())
 
 
 if __name__ == "__main__":

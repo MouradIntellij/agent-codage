@@ -335,13 +335,24 @@ VISION_MODEL_HINTS = ("llava", "qwen2.5vl", "qwen2-vl", "llama3.2-vision",
 
 
 def _available_vision_model() -> str | None:
-    """Trouve un modèle de vision déjà téléchargé dans Ollama (ou None)."""
+    """Trouve un modèle de vision déjà téléchargé dans Ollama (ou None).
+
+    Un modèle forcé par la variable d'environnement AGENT_VISION_MODEL est
+    prioritaire (s'il est bien installé) ; sinon on cherche par indice de nom.
+    """
     import requests as req
     try:
         data = req.get(f"{config.OLLAMA_URL}/api/tags", timeout=5).json()
     except Exception:
         return None
     names = [m.get("name", "") for m in data.get("models", [])]
+    forced = (config.VISION_MODEL or "").strip()
+    if forced:
+        if forced in names:
+            return forced
+        for n in names:
+            if n == forced or n.startswith(forced + ":"):
+                return n
     for hint in VISION_MODEL_HINTS:
         for n in names:
             if n.startswith(hint):
