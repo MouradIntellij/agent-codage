@@ -96,6 +96,142 @@ def is_code_request(user_input: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Demande de CALCUL mathématique : on force l'outil `calcul_symbolique`.
+# Le petit modèle est incapable de calculer de tête ou d'écrire le code SymPy
+# sans faute de transcription (ex: `ln(x)+1` au lieu de `ln(x+1)`). On lui
+# impose donc de COPIER l'expression en texte brut et de recopier le résultat
+# VÉRIFIÉ par SymPy.
+# ---------------------------------------------------------------------------
+
+MATH_REQUEST_MARKERS = (
+    "intégrale", "integrale", "intégral", "integral", "primitive",
+    "dérivée", "derivee", "dérive", "derive",
+    "équation", "equation", "résous", "resous", "résoudre", "resoudre",
+    "résolvez", "resolvez", "factorise", "factorisation", "factoriser",
+    "limite", "calcul", "calcule", "mathématiques", "mathematiques",
+    "mathématique", "mathematique", "maths", "sympy",
+)
+
+MATH_REQUEST_DIRECTIVE = (
+    "[Calcul mathématique] RÈGLE ABSOLUE : ne réponds JAMAIS de mémoire pour "
+    "un calcul. Exécute l'outil `calcul_symbolique` avec l'expression COPIÉE "
+    "TELLE QUELLE de la demande (ex: expression=\"ln(x+1)\", operation=\"integrale\"). "
+    "Ne transforme JAMAIS l'expression : ln(x+1) est UNE seule fonction, ce "
+    "n'est PAS ln(x) + 1. "
+    "1) Copie l'expression exacte de l'étudiant et appelle l'outil. "
+    "2) Compare 'Expression interprétée' renvoyée par l'outil avec la fonction "
+    "demandée : si elles diffèrent, CORRIGE l'expression et relance l'outil. "
+    "3) Dans ta réponse finale, recopie EXACTEMENT la ligne de résultat de "
+    "l'outil (ex: '∫ f(x) dx = x*log(x + 1) - x + log(x + 1) + C'), sans la "
+    "modifier ni la simplifier : perdre un terme est interdit. "
+    "4) Si l'étudiant demande la MÉTHODE (ex: 'par parties'), recopie la "
+    "section 'MÉTHODE PAR PARTIES' de la sortie de l'outil calcul_symbolique, "
+    "telle quelle. N'invente JAMAIS de règle, de formule ou de dérivation de "
+    "ton cru : tout vient de la sortie VÉRIFIÉE de l'outil. "
+    "5) Si l'outil signale une ERREUR d'interprétation, corrige la copie de "
+    "l'expression et relance : ne réponds jamais sans résultat VÉRIFIÉ."
+)
+
+
+MATH_NUDGE = (
+    "Rappel : l'utilisateur a demandé un CALCUL mathématique. Tu DOIS exécuter "
+    "l'outil `calcul_symbolique` (l'expression en texte brut, copiée telle "
+    "quelle) AVANT de donner ton résultat : ne réponds jamais de mémoire. "
+    "Exécute-le maintenant, puis recopie son résultat VÉRIFIÉ."
+)
+
+
+KIND_PREFIXES = {
+    "integrale": ("∫ f(",),
+    "derivee": ("f'(",),
+    "limite": ("lim ",),
+    "equation": ("Solution(s",),
+}
+
+
+def _infer_kind(user_input: str) -> str:
+    """Déduit le type de calcul demandé (pour extraire le bon résultat vérifié)."""
+    t = (user_input or "").lower()
+    if any(m in t for m in ("équation", "equation", "résous", "resous",
+                            "résoudre", "resoudre", "résolvez", "resolvez")):
+        return "equation"
+    if "dériv" in t or "deriv" in t:
+        return "derivee"
+    if "limite" in t:
+        return "limite"
+    return "integrale"
+
+
+def _extract_method_section(result: str) -> str:
+    """Extrait la section 'MÉTHODE PAR PARTIES' (générée et vérifiée par SymPy)."""
+    lines = (result or "").splitlines()
+    start = next((i for i, ln in enumerate(lines)
+                  if ln.strip().startswith("MÉTHODE PAR PARTIES")), None)
+    if start is None:
+        return ""
+    body = []
+    for ln in lines[start:]:
+        if ln.strip().startswith("VÉRIFICATION"):
+            break
+        body.append(ln)
+    return "\n".join(body).strip()
+
+
+def _ensure_verified_math(final_text: str, history: list,
+                          kind: str = "integrale",
+                          want_method: bool = False) -> str:
+    """Garantit que la réponse finale contient le résultat VÉRIFIÉ de l'outil.
+
+    Le petit modèle « résume » parfois la sortie de calcul_symbolique et en
+    perd un terme (ex: ln(x+1) -> ln(x)+1). On ajoute donc, par le CODE, la
+    ligne exacte vérifiée par SymPy à la réponse finale, si elle manque. On ne
+    garde que le résultat du type demandé (équation, dérivée, intégrale...)
+    pour ne pas capter un appel parasite. Si l'utilisateur demande la MÉTHODE,
+    on y ajoute aussi la section par parties (générée par SymPy).
+    """
+    prefixes = KIND_PREFIXES.get(kind, KIND_PREFIXES["integrale"])
+    for h in reversed(history):
+        if h.get("role") != "tool":
+            continue
+        content = h.get("content") or ""
+        if "VÉRIFICATION : CORRECT" not in content:
+            continue
+        lines = [ln.strip() for ln in content.splitlines()
+                 if ln.strip().startswith(prefixes)]
+        if not lines:
+            continue
+        for ln in lines:
+            if ln not in (final_text or ""):
+                final_text = f"{final_text}\n\n✅ Résultat vérifié (SymPy) : {ln}"
+        if want_method:
+            method = _extract_method_section(content)
+            if method and method not in (final_text or ""):
+                final_text = f"{final_text}\n\n{method}"
+        break
+    return final_text
+
+
+def _wants_method(user_input: str) -> bool:
+    """Vrai si l'utilisateur demande une MÉTHODE de calcul ('par parties')."""
+    return "par partie" in (user_input or "").lower()
+
+
+def is_math_request(user_input: str) -> bool:
+    """Vrai si la demande exige un calcul mathématique réel (pas de réponse de mémoire)."""
+    text = user_input.lower()
+    return any(marker in text for marker in MATH_REQUEST_MARKERS)
+
+
+def _apply_directive(messages: list, user_input: str) -> list:
+    """Injette la directive adaptée dans le dernier message utilisateur."""
+    messages[-1] = {
+        **messages[-1],
+        "content": MATH_REQUEST_DIRECTIVE + "\n\n" + user_input,
+    }
+    return messages
+
+
 def _looks_like_tool_json(text: str) -> bool:
     """Vrai si la réponse ressemble à un JSON d'appel d'outil ({\"name\": ...}).
 
@@ -125,14 +261,15 @@ PENDING_MARKERS = (
 
 TOOL_WORDS = (
     "sympy", "python", "bash", "command", "intégr", "integr", "dériv", "deriv",
-    "équation", "equation", "calcul", "outil",
+    "équation", "equation", "calcul", "outil", "calcul_symbolique",
 )
 
 PENDING_NUDGE = (
     "Tu as annoncé un calcul ou une vérification sans exécuter aucun outil. "
-    "C'est interdit : exécute MAINTENANT l'outil bash (Python + SymPy) ou "
-    "l'outil adapté, puis donne le résultat réellement vérifié. Ne te "
-    "contente pas de promettre ou de montrer du code."
+    "C'est interdit : exécute MAINTENANT l'outil `calcul_symbolique` (pour un "
+    "calcul mathématique, l'expression en texte brut) ou l'outil adapté, puis "
+    "donne le résultat réellement vérifié. Ne te contente pas de promettre ou "
+    "de montrer du code."
 )
 
 MAX_NUDGES = 1
@@ -217,27 +354,44 @@ def run_agent(user_input: str, history: list | None = None,
         messages.append(reply)
         return reply.get("content") or "(réponse vide)", messages
 
+    if is_math_request(user_input):
+        # Demande de calcul : on force l'outil calcul_symbolique (outils actifs).
+        messages = _apply_directive(messages, user_input)
+
     history = messages                    # on travaille sur la liste complète
 
     nudges = 0
     repeat_hints = 0
     prev_key = None
     any_tool = False
+    used_math_tool = False
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat(history, tools=tools.TOOLS)
         history.append(reply)             # le message de l'assistant est conservé
 
         calls = llm.parse_tool_calls(reply)
         if not calls:                     # le modèle a fini de travailler
-            if (nudges < MAX_NUDGES and not any_tool
-                    and _suggests_pending_action(reply.get("content") or "")):
-                history.append({"role": "user", "content": PENDING_NUDGE})
-                nudges += 1
-                continue
-            return reply.get("content") or "(réponse vide)", history
+            if nudges < MAX_NUDGES:
+                if is_math_request(user_input) and not used_math_tool:
+                    # Un calcul demandé SANS outil : on refuse la réponse de mémoire.
+                    history.append({"role": "user", "content": MATH_NUDGE})
+                    nudges += 1
+                    continue
+                if (not any_tool
+                        and _suggests_pending_action(reply.get("content") or "")):
+                    history.append({"role": "user", "content": PENDING_NUDGE})
+                    nudges += 1
+                    continue
+            final = reply.get("content") or "(réponse vide)"
+            return (_ensure_verified_math(final, history,
+                                          kind=_infer_kind(user_input),
+                                          want_method=_wants_method(user_input)),
+                    history)
 
         for call in calls:                # exécution des outils demandés
             any_tool = True
+            if call["name"] == "calcul_symbolique":
+                used_math_tool = True
             result = tools.execute_tool(call["name"], call["arguments"])
             if on_tool:
                 on_tool(call, result)
@@ -281,26 +435,42 @@ def run_agent_stream(user_input: str, history: list | None = None,
         messages.append(reply)
         return reply.get("content") or "(réponse vide)", messages
 
+    if is_math_request(user_input):
+        # Demande de calcul : on force l'outil calcul_symbolique (outils actifs).
+        messages = _apply_directive(messages, user_input)
+
     history = messages
     nudges = 0
     repeat_hints = 0
     prev_key = None
     any_tool = False
+    used_math_tool = False
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat_stream(history, tools=tools.TOOLS, on_delta=on_delta)
         history.append(reply)
 
         calls = llm.parse_tool_calls(reply)
         if not calls:                     # le modèle a fini : texte diffusé
-            if (nudges < MAX_NUDGES and not any_tool
-                    and _suggests_pending_action(reply.get("content") or "")):
-                history.append({"role": "user", "content": PENDING_NUDGE})
-                nudges += 1
-                continue
-            return reply.get("content") or "(réponse vide)", history
+            if nudges < MAX_NUDGES:
+                if is_math_request(user_input) and not used_math_tool:
+                    history.append({"role": "user", "content": MATH_NUDGE})
+                    nudges += 1
+                    continue
+                if (not any_tool
+                        and _suggests_pending_action(reply.get("content") or "")):
+                    history.append({"role": "user", "content": PENDING_NUDGE})
+                    nudges += 1
+                    continue
+            final = reply.get("content") or "(réponse vide)"
+            return (_ensure_verified_math(final, history,
+                                          kind=_infer_kind(user_input),
+                                          want_method=_wants_method(user_input)),
+                    history)
 
         for call in calls:                # exécution des outils demandés
             any_tool = True
+            if call["name"] == "calcul_symbolique":
+                used_math_tool = True
             result = tools.execute_tool(call["name"], call["arguments"])
             if on_tool:
                 on_tool(call, result)

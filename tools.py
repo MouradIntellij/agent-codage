@@ -153,13 +153,36 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "calcul_symbolique",
+            "description": "Calcule et VÉRIFIE une expression mathématique avec SymPy "
+                           "(intégrale, dérivée, équation, limite, simplification). "
+                           "À utiliser pour TOUT calcul mathématique. L'expression doit être "
+                           "copiée EN TEXTE BRUT telle qu'écrite par l'étudiant, ex: "
+                           "'ln(x+1)', 'x^2 - 5*x + 6 = 0'. Ne jamais écrire le code SymPy "
+                           "à la main : c'est l'outil qui interprète et vérifie.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string",
+                                   "description": "La fonction mathématique EN TEXTE BRUT, copiée telle quelle (ex: 'ln(x+1)')"},
+                    "operation": {"type": "string",
+                                  "description": "Type de calcul: 'integrale' (défaut), 'derivee', 'equation', 'limite', 'simplifier', 'factoriser'"},
+                    "variable": {"type": "string", "description": "Variable d'intégration (défaut: x)"},
+                    "point": {"type": "string", "description": "Point pour une limite (défaut: oo)"},
+                },
+                "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "bash",
             "description": "Exécute une commande dans le terminal (python, git, pip, pytest...). "
                            "Retourne la sortie, les erreurs et le code de sortie. "
-                           "Pour un CALCUL Python, utilise EXACTEMENT ce modèle (guillemets "
-                           "DOUBLES à l'extérieur, apostrophes simples à l'intérieur, et "
-                           "définis toujours le symbole avec sympy.symbols) : "
-                           "python -c \"import sympy; x=sympy.symbols('x'); print(sympy.integrate(sympy.ln(x),x))\".",
+                           "Pour un CALCUL MATHÉMATIQUE (intégrale, dérivée, équation...), "
+                           "n'écris PAS le code SymPy à la main : utilise l'outil dédié "
+                           "`calcul_symbolique` avec l'expression en texte brut.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -284,6 +307,183 @@ def bash(command: str, timeout: int | None = None) -> str:
         output = output[:4000] + "\n...[sortie tronquée]"
     return (f"$ {command}  ({elapsed:.1f}s, code de sortie {proc.returncode})\n"
             f"{output}".rstrip())
+
+
+# --------------------------------------------------------------------------
+# Calcul symbolique VÉRIFIÉ (SymPy).
+#
+# Le modèle NE DOIT JAMAIS écrire le code SymPy à la main (il fait des fautes
+# de transcription : `sympy.ln(x)+1` au lieu de `sympy.ln(x+1)`). Il passe
+# l'expression EN TEXTE BRUT, copiée telle quelle, et SymPy se charge de
+# l'interpréter, de calculer ET de vérifier par dérivation.
+# --------------------------------------------------------------------------
+
+# Noms de fonctions connus : on n'y insère pas de multiplication implicite.
+_FUNC_NAMES = {
+    "ln", "log", "exp", "sin", "cos", "tan", "asin", "acos", "atan",
+    "sinh", "cosh", "tanh", "sqrt", "abs", "erf", "sec", "csc", "cot",
+}
+
+
+def _norm_op(operation: str) -> str:
+    """Normalise le nom de l'opération demandée ('intégrale', 'dérivée'...)."""
+    op = (operation or "").lower()
+    for a, b in (("é", "e"), ("è", "e"), ("ê", "e"), ("à", "a"),
+                 ("ô", "o"), ("î", "i"), ("û", "u"), ("ç", "c")):
+        op = op.replace(a, b)
+    if not op:
+        return "integrale"
+    if op.startswith("integr") or op.startswith("primitive"):
+        return "integrale"
+    if op.startswith("deriv"):
+        return "derivee"
+    if op.startswith("equat") or op.startswith("resoud") or op.startswith("resol"):
+        return "equation"
+    if op.startswith("simpl"):
+        return "simplifier"
+    if op.startswith("factor"):
+        return "factoriser"
+    if op.startswith("limit"):
+        return "limite"
+    return "integrale"
+
+
+def _prepare_expr(s: str) -> str:
+    """Petits accommodements avant l'interprétation SymPy : x^2 -> x**2,
+    multiplication implicite (2x -> 2*x, x(x+1) -> x*(x+1))."""
+    s = s.replace("^", "**").replace("√", "sqrt").strip()
+    # ')' suivi d'une lettre/chiffre/'(' -> multiplication.
+    s = re.sub(r"\)\s*(?=[A-Za-z0-9(])", ")*", s)
+    # chiffre suivi d'une lettre ou d'une parenthèse -> multiplication.
+    s = re.sub(r"(?<=\d)\s*(?=[A-Za-z(])", "*", s)
+    # variable simple (x, y, t, z) directement suivie de '(' -> multiplication,
+    # sauf si elle fait partie d'un nom de fonction (sin(, ln(, exp(...).
+    s = re.sub(r"(^|[^\w])([xytz])\s*\(", r"\1\2*(", s)
+    return s
+
+
+def _by_parts_steps(f, sym, sympy):
+    """Dérivation par parties VÉRIFIÉE pour f = ln(a*x + b).
+
+    Chaque étape est recalculée par SymPy : la dérivation est donc exacte.
+    Renvoie '' si la fonction n'est pas de la forme ln(linéaire).
+    """
+    if not isinstance(f, sympy.log):
+        return ""
+    g = f.args[0]
+    if sympy.degree(g, sym) != 1:
+        return ""
+    p = sympy.Poly(g, sym)
+    a, b = p.nth(1), p.nth(0)
+    du = sympy.simplify(a / g)
+    v_int = sympy.simplify(sympy.integrate(sym * a / g, sym))
+    final = sympy.simplify(sym * f - v_int)
+    g_s = str(g).replace("log(", "ln(")
+    du_s = str(du).replace("log(", "ln(")
+    v_s = str(v_int).replace("log(", "ln(")
+    f_s = str(final).replace("log(", "ln(")
+    return (f"\n\nMÉTHODE PAR PARTIES (chaque étape vérifiée par SymPy) :\n"
+            f"u = ln({g_s}),  dv = d{sym}\n"
+            f"du = {du_s} d{sym},  v = {sym}\n"
+            f"∫ u·dv = u·v − ∫ v·du = {sym}·ln({g_s}) − ∫ {sym}·{a}/({g_s}) d{sym}\n"
+            f"∫ {sym}·{a}/({g_s}) d{sym} = {v_s}\n"
+            f"Résultat : {sym}·ln({g_s}) − ({v_s}) = {f_s} + C")
+
+
+def calcul_symbolique(expression: str, operation: str = "integrale",
+                      variable: str = "x", point: str = "oo") -> str:
+    """Calcule et VÉRIFIE une expression mathématique avec SymPy.
+
+    `expression` est fournie en texte brut (ex: 'ln(x+1)'), copiée telle
+    quelle de la demande de l'étudiant. SymPy l'interprète, calcule, puis
+    vérifie le résultat (la dérivée du résultat doit redonner l'expression).
+    """
+    try:
+        import sympy
+    except ImportError:
+        return ("ERREUR: SymPy n'est pas installé. "
+                "Installez-le avec: python -m pip install sympy.")
+    op = _norm_op(operation)
+    expr = (expression or "").strip()
+    if not expr:
+        return ("ERREUR: expression vide. Passez SEULEMENT la fonction, "
+                "ex: expression='ln(x+1)'.")
+    sym = sympy.symbols(variable)
+    locals_map = {variable: sym, "ln": sympy.log, "log": sympy.log,
+                  "e": sympy.E, "pi": sympy.pi, "oo": sympy.oo}
+    try:
+        if "=" in expr:
+            lhs_s, _, rhs_s = expr.partition("=")
+            f = sympy.sympify(_prepare_expr(lhs_s), locals=locals_map) - \
+                sympy.sympify(_prepare_expr(rhs_s), locals=locals_map)
+        else:
+            f = sympy.sympify(_prepare_expr(expr), locals=locals_map)
+    except Exception as err:
+        return (f"ERREUR: expression '{expression}' non comprise ({err}). "
+                f"Passez SEULEMENT la fonction en texte brut, ex: 'ln(x+1)', "
+                f"'x**2*exp(x)' ou l'équation 'x^2 - 5*x + 6 = 0'.")
+    f = sympy.simplify(f)
+
+    if op == "derivee":
+        r = sympy.simplify(sympy.diff(f, sym))
+        check = sympy.simplify(sympy.integrate(r, sym) - f)
+        verif = "CORRECT" if check == 0 else f"à vérifier: reste {check}"
+        return (f"Expression interprétée : {f}\n"
+                f"f'({variable}) = {r}\n"
+                f"VÉRIFICATION : {verif}")
+
+    if op == "equation":
+        try:
+            sols = sympy.solve(f, sym)
+        except Exception as err:
+            return f"ERREUR: résolution impossible: {err}"
+        # Vérifie chaque solution en la substituant dans l'équation.
+        try:
+            checks = [sympy.simplify(f.subs(sym, s)) for s in sols]
+            verif = "CORRECT" if all(c == 0 for c in checks) else \
+                f"DOUTEUX: restes {[c for c in checks if c != 0]}"
+        except Exception:
+            verif = "calculée (vérification par substitution impossible)"
+        return (f"Équation : {expr}\nSolution(s) {variable} : {sols}\n"
+                f"VÉRIFICATION : {verif}")
+
+    if op == "limite":
+        try:
+            p = sympy.sympify(_prepare_expr(point), locals=locals_map)
+            r = sympy.limit(f, sym, p)
+        except Exception as err:
+            return f"ERREUR: limite impossible: {err}"
+        return f"Expression interprétée : {f}\nlim {variable}→{point} : {r}"
+
+    if op == "simplifier":
+        return f"Expression interprétée : {expr}\nSimplifiée : {sympy.simplify(f)}"
+
+    if op == "factoriser":
+        try:
+            return f"Expression interprétée : {expr}\nFactorisée : {sympy.factor(f)}"
+        except Exception as err:
+            return f"ERREUR: factorisation impossible: {err}"
+
+    # Intégrale (cas par défaut aussi).
+    r = sympy.integrate(f, sym)
+    check = sympy.simplify(sympy.diff(r, sym) - f)
+    verif = "CORRECT (la dérivée du résultat redonne exactement f(x))" \
+        if check == 0 else f"DOUTEUX: il reste {check}"
+    form = ""
+    try:
+        fr = sympy.collect(r, sympy.log(sym + 1))
+        if fr != r:
+            form = f"\nForme regroupée : {fr} + C"
+    except Exception:
+        pass
+    try:
+        by_parts = _by_parts_steps(f, sym, sympy)
+    except Exception:
+        by_parts = ""
+    return (f"Expression interprétée : {f}\n"
+            f"∫ f({variable}) d{variable} = {r} + C{form}"
+            f"{by_parts}\n"
+            f"VÉRIFICATION : {verif}")
 
 
 # --------------------------------------------------------------------------
@@ -565,6 +765,7 @@ EXECUTORS = {
     "edit_file": edit_file,
     "glob": glob,
     "bash": bash,
+    "calcul_symbolique": calcul_symbolique,
 }
 
 

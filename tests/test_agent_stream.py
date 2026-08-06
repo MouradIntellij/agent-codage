@@ -150,7 +150,7 @@ class TestRunAgentStream(unittest.TestCase):
 
     def test_plan_sans_action_declenche_linjonction(self):
         # Le modèle promet de calculer sans exécuter d'outil : la boucle doit
-        # lui renvoyer une injonction (PENDING_NUDGE) au lieu de s'arrêter.
+        # lui renvoyer une injonction (MATH_NUDGE) au lieu de s'arrêter.
         plan = {"role": "assistant",
                 "content": "Je vais calculer l'intégrale avec SymPy."}
         final = {"role": "assistant", "content": "Résultat vérifié : x*log(x) - x."}
@@ -159,18 +159,20 @@ class TestRunAgentStream(unittest.TestCase):
             response, history = agent.run_agent_stream("calcule l'intégrale de ln(x)")
         self.assertEqual(response, "Résultat vérifié : x*log(x) - x.")
         self.assertEqual(len(fake.calls), 2)
-        self.assertIn(agent.PENDING_NUDGE,
+        self.assertIn(agent.MATH_NUDGE,
                       fake.calls[1]["messages"][-1]["content"])
 
     def test_pas_de_nudge_apres_un_outil(self):
-        # Après un vrai appel d'outil, une mention rhétorique (« nous pouvons
-        # utiliser les règles de l'intégrale ») ne doit PAS relancer la boucle.
+        # Après un VRAI appel à l'outil de calcul, une mention rhétorique
+        # (« nous pouvons utiliser les règles de l'intégrale ») ne doit PAS
+        # relancer la boucle ni ajouter d'injonction.
         appel = {
             "role": "assistant", "content": None,
             "tool_calls": [{
                 "id": "call_1", "type": "function",
-                "function": {"name": "bash",
-                             "arguments": {"command": "python -c \"print(1)\""}},
+                "function": {"name": "calcul_symbolique",
+                             "arguments": {"expression": "ln(x)",
+                                           "operation": "integrale"}},
             }],
         }
         final = {"role": "assistant",
@@ -179,9 +181,50 @@ class TestRunAgentStream(unittest.TestCase):
         fake = FakeChatStream([appel, final])
         with patch.object(agent.llm, "chat_stream", fake):
             response, _ = agent.run_agent_stream("calcule l'intégrale de ln(x)")
-        self.assertEqual(response, "Le résultat est x*log(x) - x : nous pouvons "
-                                   "utiliser les règles de l'intégrale.")
+        self.assertIn("Le résultat est x*log(x) - x : nous pouvons "
+                      "utiliser les règles de l'intégrale.", response)
+        # Le résultat VÉRIFIÉ de l'outil est garanti dans la réponse finale.
+        self.assertIn("Résultat vérifié (SymPy)", response)
         self.assertEqual(len(fake.calls), 2)
+
+
+class TestMathGuards(unittest.TestCase):
+    """Filets des calculs mathématiques : extraction déterministe du résultat."""
+
+    def test_infer_kind(self):
+        self.assertEqual(agent._infer_kind("intégrale de ln(x+1)"), "integrale")
+        self.assertEqual(agent._infer_kind("dérivée de x*exp(x)"), "derivee")
+        self.assertEqual(agent._infer_kind("résous x^2 - 5x + 6 = 0"), "equation")
+        self.assertEqual(agent._infer_kind("limite de sin(x)/x"), "limite")
+
+    def test_wants_method(self):
+        self.assertTrue(agent._wants_method("calcule par la méthode par parties"))
+        self.assertTrue(agent._wants_method("intégration par parties"))
+        self.assertFalse(agent._wants_method("intégrale de ln(x+1)"))
+
+    def test_ensure_verified_skips_spurious_call(self):
+        # Pour une équation, un appel parasite (intégrale) ne doit pas devenir
+        # le « résultat vérifié » : on garde la ligne Solution(s).
+        hist = [
+            {"role": "tool", "content":
+                "Équation : x^2 - 5*x + 6 = 0\nSolution(s) x : [2, 3]\n"
+                "VÉRIFICATION : CORRECT"},
+            {"role": "tool", "content":
+                "Expression interprétée : 3\n∫ f(x) dx = 3*x + C\n"
+                "VÉRIFICATION : CORRECT"},
+        ]
+        out = agent._ensure_verified_math("x = 2 ou x = 3", hist, kind="equation")
+        self.assertIn("Solution(s) x : [2, 3]", out)
+        self.assertNotIn("3*x + C", out)
+
+    def test_ensure_verified_keeps_integral_line(self):
+        hist = [{"role": "tool", "content":
+                 "Expression interprétée : log(x + 1)\n"
+                 "∫ f(x) dx = x*log(x + 1) - x + log(x + 1) + C\n"
+                 "VÉRIFICATION : CORRECT"}]
+        out = agent._ensure_verified_math(
+            "Le résultat est x*log(x+1) - x.", hist, kind="integrale")
+        self.assertIn("∫ f(x) dx = x*log(x + 1) - x + log(x + 1) + C", out)
 
 
 if __name__ == "__main__":

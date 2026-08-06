@@ -218,6 +218,36 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(tools._repair_path(""), "")
         self.assertEqual(tools._repair_path(r"D:\a\D:\a\x\y.txt"), r"D:\a\x\y.txt")
 
+    def test_norm_op(self):
+        self.assertEqual(tools._norm_op("integrale"), "integrale")
+        self.assertEqual(tools._norm_op("intégrale"), "integrale")
+        self.assertEqual(tools._norm_op("dérivée"), "derivee")
+        self.assertEqual(tools._norm_op("équation"), "equation")
+        self.assertEqual(tools._norm_op(""), "integrale")
+        self.assertEqual(tools._norm_op("limite"), "limite")
+
+    def test_prepare_expr_implicit_multiplication(self):
+        self.assertEqual(tools._prepare_expr("x^2 - 5x + 6"), "x**2 - 5*x + 6")
+        self.assertEqual(tools._prepare_expr("2x(x+1)"), "2*x*(x+1)")
+        self.assertEqual(tools._prepare_expr("ln(x+1)"), "ln(x+1)")      # intact
+        self.assertEqual(tools._prepare_expr("(x+1)(x-1)"), "(x+1)*(x-1)")
+
+    def test_calcul_symbolique_integrale_ln_x_plus_1(self):
+        out = tools.calcul_symbolique("ln(x+1)", "integrale")
+        self.assertIn("log(x + 1)", out)
+        self.assertIn("x*log(x + 1) - x + log(x + 1)", out)
+        self.assertIn("CORRECT", out)
+
+    def test_calcul_symbolique_equation(self):
+        out = tools.calcul_symbolique("x^2 - 5x + 6 = 0", "equation")
+        self.assertIn("2", out)
+        self.assertIn("3", out)
+
+    def test_calcul_symbolique_derivee(self):
+        out = tools.calcul_symbolique("x*exp(x)", "derivee")
+        self.assertIn("(x + 1)*exp(x)", out)
+        self.assertIn("CORRECT", out)
+
 
 if __name__ == "__main__":
     unittest.main()
