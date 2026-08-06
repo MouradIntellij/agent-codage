@@ -107,6 +107,71 @@ def _looks_like_tool_json(text: str) -> bool:
         '"parameters"' in t or '"arguments"' in t)
 
 
+# ---------------------------------------------------------------------------
+# Filet de sécurité « plan sans action » : le modèle annonce un calcul ou une
+# vérification mais s'arrête SANS exécuter d'outil. On le repère (marqueur de
+# promesse + vocabulaire d'outil) et on lui renvoie une injonction de
+# réellement exécuter, au plus une fois.
+# ---------------------------------------------------------------------------
+
+PENDING_MARKERS = (
+    "je vais exécuter", "je vais executer", "je vais vérifier", "je vais verifier",
+    "je vais calculer", "je vais utiliser", "je vais lancer", "je vais commencer",
+    "je vais vous montrer", "je vais te montrer", "je vais montrer",
+    "si vous souhaitez, je peux", "si tu veux, je peux", "je peux vous montrer",
+    "je peux exécuter", "je peux executer", "je peux calculer", "je peux vérifier",
+    "je peux verifier",
+)
+
+TOOL_WORDS = (
+    "sympy", "python", "bash", "command", "intégr", "integr", "dériv", "deriv",
+    "équation", "equation", "calcul", "outil",
+)
+
+PENDING_NUDGE = (
+    "Tu as annoncé un calcul ou une vérification sans exécuter aucun outil. "
+    "C'est interdit : exécute MAINTENANT l'outil bash (Python + SymPy) ou "
+    "l'outil adapté, puis donne le résultat réellement vérifié. Ne te "
+    "contente pas de promettre ou de montrer du code."
+)
+
+MAX_NUDGES = 1
+
+
+def _suggests_pending_action(text: str) -> bool:
+    """Vrai si le texte promet une action (calcul/vérification) sans la faire."""
+    t = (text or "").lower()
+    return any(m in t for m in PENDING_MARKERS) and any(w in t for w in TOOL_WORDS)
+
+
+# ---------------------------------------------------------------------------
+# Garde anti-répétition : si le modèle réexécute EXACTEMENT la même commande
+# qui vient d'échouer, on lui insuffle un conseil au lieu de le laisser
+# tourner en boucle.
+# ---------------------------------------------------------------------------
+
+REPEAT_HINT = (
+    "Tu viens d'exécuter EXACTEMENT la même commande qui a échoué. C'est "
+    "inutile : corrige vraiment la commande avant de la relancer. Rappel : "
+    "pour Python, mets des guillemets DOUBLES autour de la commande "
+    "(python -c \"...\") et des apostrophes simples pour les chaînes à "
+    "l'intérieur ; définis le symbole via sympy.symbols(...)."
+)
+
+MAX_REPEAT_HINTS = 2
+
+
+def _call_key(name: str, arguments: dict) -> str:
+    return f"{name}::{sorted((k, str(v)) for k, v in (arguments or {}).items())}"
+
+
+def _looks_failed(result: str) -> bool:
+    r = result or ""
+    if "ERREUR" in r:
+        return True
+    return "code de sortie" in r and "code de sortie 0" not in r
+
+
 def _direct_answer(messages: list, on_delta=None) -> dict:
     """Réponse DIRECTE, sans outil.
 
@@ -154,15 +219,25 @@ def run_agent(user_input: str, history: list | None = None,
 
     history = messages                    # on travaille sur la liste complète
 
+    nudges = 0
+    repeat_hints = 0
+    prev_key = None
+    any_tool = False
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat(history, tools=tools.TOOLS)
         history.append(reply)             # le message de l'assistant est conservé
 
         calls = llm.parse_tool_calls(reply)
         if not calls:                     # le modèle a fini de travailler
+            if (nudges < MAX_NUDGES and not any_tool
+                    and _suggests_pending_action(reply.get("content") or "")):
+                history.append({"role": "user", "content": PENDING_NUDGE})
+                nudges += 1
+                continue
             return reply.get("content") or "(réponse vide)", history
 
         for call in calls:                # exécution des outils demandés
+            any_tool = True
             result = tools.execute_tool(call["name"], call["arguments"])
             if on_tool:
                 on_tool(call, result)
@@ -172,6 +247,13 @@ def run_agent(user_input: str, history: list | None = None,
                 "tool_call_id": call["id"],
                 "content": result,
             })
+            # Anti-boucle : même commande qui échoue deux fois -> conseil.
+            key = _call_key(call["name"], call["arguments"])
+            if (key == prev_key and repeat_hints < MAX_REPEAT_HINTS
+                    and _looks_failed(result)):
+                history.append({"role": "user", "content": REPEAT_HINT})
+                repeat_hints += 1
+            prev_key = key
 
     return ("J'ai atteint la limite d'itérations. Décrivez votre besoin "
             "plus précisément ou divisez la tâche."), history
@@ -200,15 +282,25 @@ def run_agent_stream(user_input: str, history: list | None = None,
         return reply.get("content") or "(réponse vide)", messages
 
     history = messages
+    nudges = 0
+    repeat_hints = 0
+    prev_key = None
+    any_tool = False
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat_stream(history, tools=tools.TOOLS, on_delta=on_delta)
         history.append(reply)
 
         calls = llm.parse_tool_calls(reply)
         if not calls:                     # le modèle a fini : texte diffusé
+            if (nudges < MAX_NUDGES and not any_tool
+                    and _suggests_pending_action(reply.get("content") or "")):
+                history.append({"role": "user", "content": PENDING_NUDGE})
+                nudges += 1
+                continue
             return reply.get("content") or "(réponse vide)", history
 
         for call in calls:                # exécution des outils demandés
+            any_tool = True
             result = tools.execute_tool(call["name"], call["arguments"])
             if on_tool:
                 on_tool(call, result)
@@ -217,6 +309,13 @@ def run_agent_stream(user_input: str, history: list | None = None,
                 "tool_call_id": call["id"],
                 "content": result,
             })
+            # Anti-boucle : même commande qui échoue deux fois -> conseil.
+            key = _call_key(call["name"], call["arguments"])
+            if (key == prev_key and repeat_hints < MAX_REPEAT_HINTS
+                    and _looks_failed(result)):
+                history.append({"role": "user", "content": REPEAT_HINT})
+                repeat_hints += 1
+            prev_key = key
 
     return ("J'ai atteint la limite d'itérations. Décrivez votre besoin "
             "plus précisément ou divisez la tâche."), history

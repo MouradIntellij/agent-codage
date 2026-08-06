@@ -6,6 +6,7 @@ un simple POST JSON vers /v1/chat/completions, comme avec ChatGPT.
 """
 
 import json
+import re
 
 import requests
 
@@ -73,6 +74,27 @@ def _clean_message(message: dict) -> dict:
     return cleaned
 
 
+def _parse_text_tool_calls(content: str) -> list:
+    """Détecte un appel d'outil écrit en JSON dans le texte.
+
+    Certains petits modèles (llama3.2...) écrivent parfois l'appel d'outil en
+    texte au lieu du champ structuré tool_calls, ex :
+        {"name": "bash", "parameters": {"command": "..."}}
+    On le transforme alors en appel d'outil exploitable par la boucle.
+    """
+    text = (content or "").strip()
+    match = re.search(
+        r'\{"name"\s*:\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*"parameters"\s*:\s*(\{.*\})\s*\}',
+        text, re.DOTALL)
+    if not match:
+        return []
+    try:
+        args = json.loads(match.group(2))
+    except json.JSONDecodeError:
+        args = {}
+    return [{"id": "textcall", "name": match.group(1), "arguments": args}]
+
+
 def parse_tool_calls(message: dict) -> list:
     """Transforme les tool_calls du message en liste normalisée pour le code.
 
@@ -92,7 +114,10 @@ def parse_tool_calls(message: dict) -> list:
             args = raw
         result.append({"id": call.get("id", ""), "name": function.get("name", ""),
                        "arguments": args})
-    return result
+    if result:
+        return result
+    # Filet de sécurité : appel d'outil en JSON dans le texte.
+    return _parse_text_tool_calls(message.get("content") or "")
 
 
 def chat_stream(messages: list, tools: list | None = None,

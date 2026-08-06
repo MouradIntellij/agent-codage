@@ -148,6 +148,41 @@ class TestRunAgentStream(unittest.TestCase):
         self.assertEqual("".join(deltas).strip(), "Fait.")
         os.remove(target)
 
+    def test_plan_sans_action_declenche_linjonction(self):
+        # Le modèle promet de calculer sans exécuter d'outil : la boucle doit
+        # lui renvoyer une injonction (PENDING_NUDGE) au lieu de s'arrêter.
+        plan = {"role": "assistant",
+                "content": "Je vais calculer l'intégrale avec SymPy."}
+        final = {"role": "assistant", "content": "Résultat vérifié : x*log(x) - x."}
+        fake = FakeChatStream([plan, final])
+        with patch.object(agent.llm, "chat_stream", fake):
+            response, history = agent.run_agent_stream("calcule l'intégrale de ln(x)")
+        self.assertEqual(response, "Résultat vérifié : x*log(x) - x.")
+        self.assertEqual(len(fake.calls), 2)
+        self.assertIn(agent.PENDING_NUDGE,
+                      fake.calls[1]["messages"][-1]["content"])
+
+    def test_pas_de_nudge_apres_un_outil(self):
+        # Après un vrai appel d'outil, une mention rhétorique (« nous pouvons
+        # utiliser les règles de l'intégrale ») ne doit PAS relancer la boucle.
+        appel = {
+            "role": "assistant", "content": None,
+            "tool_calls": [{
+                "id": "call_1", "type": "function",
+                "function": {"name": "bash",
+                             "arguments": {"command": "python -c \"print(1)\""}},
+            }],
+        }
+        final = {"role": "assistant",
+                 "content": "Le résultat est x*log(x) - x : nous pouvons "
+                            "utiliser les règles de l'intégrale."}
+        fake = FakeChatStream([appel, final])
+        with patch.object(agent.llm, "chat_stream", fake):
+            response, _ = agent.run_agent_stream("calcule l'intégrale de ln(x)")
+        self.assertEqual(response, "Le résultat est x*log(x) - x : nous pouvons "
+                                   "utiliser les règles de l'intégrale.")
+        self.assertEqual(len(fake.calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

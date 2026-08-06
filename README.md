@@ -15,8 +15,8 @@ commandes, voir le résultat, puis **continuer seul** jusqu'à terminer la tâch
 
 ```bash
 # 1. Installer Ollama (une fois) : https://ollama.com  puis:
-ollama pull qwen2.5:latest   # défaut : le meilleur compromis CPU/qualité
-#    (llama3.2:latest = plus rapide mais moins fiable)
+ollama pull llama3.2:latest   # défaut : tool-calling fiable pour les calculs (SymPy)
+#    (qwen2.5:latest = plus éloquent mais saute les calculs par outils)
 # 2. Lancer le serveur Ollama (l'app le fait automatiquement)
 ollama serve
 
@@ -110,8 +110,8 @@ Reconstruire l'exécutable après une modification de l'agent :
 
 | Modèle | Taille | Pourquoi |
 |---|---|---|
-| `qwen2.5:latest` | ~4,7 Go | **Défaut** : maths, résumés, pédagogie, tool-calling fiable (~7 tok/s CPU) |
-| `llama3.2:latest` | ~2 Go | Rapide sur CPU seul (~14 tok/s), mais moins fiable |
+| `llama3.2:latest` | ~2 Go | **Défaut** : tool-calling fiable, calcule et vérifie réellement (SymPy : intégrales, dérivées, équations), ~14 tok/s CPU |
+| `qwen2.5:latest` | ~4,7 Go | Belle prose, bons fichiers, MAIS saute les appels d'outil de calcul (réponse vide) |
 | `gemma2:9b` | ~6 Go | Très bon niveau de langue, à télécharger, plus lent |
 
 Changer de modèle : variable d'environnement `AGENT_MODEL`, ou éditer `config.py`.

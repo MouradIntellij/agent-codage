@@ -164,9 +164,9 @@ ollama pull llama3.2:latest
 > rend **rapide même sans carte graphique** — important en classe.
 >
 > 🐢 **Si les réponses sont trop lentes** : tout se passe sur le CPU.
-> Alternative de qualité : `qwen2.5:latest` (mieux en code et plus fiable,
-> mais ~2-3x plus lent). Essayez-le sans toucher au code :
-> `set AGENT_MODEL=qwen2.5:latest && python main.py`.
+> Alternative plus éloquente : `qwen2.5:latest` (plus soigné en prose et
+> fichiers, MAIS saute les appels d'outil de calcul). Essayez sans toucher au
+> code : `set AGENT_MODEL=qwen2.5:latest && python main.py`.
 
 ✔️ **À vérifier** : `ollama list` affiche `llama3.2:latest`.
 
@@ -1257,7 +1257,7 @@ conclusion) dans `rapport.md`.
 | `python` n'est pas reconnu | Réinstallez Python en cochant « Add to PATH » |
 | `ollama --version` échoue | L'app Ollama doit être installée ET lancée |
 | « connection refused » | Le serveur ne tourne pas : `ollama serve` |
-| « model not found » | `ollama pull llama3.2:latest` (ou `ollama pull qwen2.5:latest` pour plus de qualité) |
+| « model not found » | `ollama pull llama3.2:latest` (ou `ollama pull qwen2.5:latest` pour une prose plus soignée) |
 | Accents affichés `�` (Windows) | `set PYTHONIOENCODING=utf-8` avant `python main.py` |
 | Le modèle ne s'arrête pas de boucler | Baissez `MAX_ITERATIONS` ou clarifiez le prompt ; ajoutez la porte de décision (7.13) |
 | L'agent explore le disque au lieu de répondre à une question de code | Ajoutez la porte de décision (7.13) : il répond alors sans outils |

@@ -24,11 +24,11 @@ pause
 exit /b 1
 :ollama_ok
 
-echo [1/3] Verification du modele local qwen2.5...
-ollama list | findstr /i "qwen2.5" >nul
+echo [1/3] Verification du modele local llama3.2...
+ollama list | findstr /i "llama3.2" >nul
 if not errorlevel 1 goto modele_ok
 echo [INFO] Modele absent : telechargement 2 Go, Internet requis une seule fois.
-ollama pull qwen2.5:latest
+ollama pull llama3.2:latest
 :modele_ok
 
 echo [2/3] Installation de la dependance Python requests...
