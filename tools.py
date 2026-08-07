@@ -274,6 +274,9 @@ def read_file(path: str, offset: int = 1, limit: int | None = None) -> str:
     if b"\0" in data[:8192]:                         # un .docx (binaire ZIP) contient des NUL
         return (f"ERREUR: '{path}' est un fichier BINAIRE (non texte). "
                 f"Pour un document, utilisez l'outil read_document.")
+    if os.path.splitext(path)[1].lower() in IMAGE_EXTS:
+        return (f"ERREUR: '{path}' est une IMAGE, elle ne se lit pas avec "
+                f"read_file. Utilisez l'outil read_image pour la décrire.")
     lines = data.decode("utf-8", errors="replace").split("\n")
     chunk = lines[offset - 1: offset - 1 + limit]
     return "".join(f"{offset + i}: {line}\n" for i, line in enumerate(chunk))

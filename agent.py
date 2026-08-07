@@ -309,6 +309,33 @@ def _looks_failed(result: str) -> bool:
     return "code de sortie" in r and "code de sortie 0" not in r
 
 
+def _clean_repetition(text: str, threshold: int = 3) -> str:
+    """Coupe une réponse du modèle qui se répète en boucle.
+
+    Parfois un petit modèle local « coince » et génère plusieurs fois le même
+    paragraphe (dégénérescence). On détecte le bloc répété et on ne garde que
+    la première occurrence, avec une note explicative. L'information utile
+    (en tête de réponse) est conservée.
+    """
+    text = (text or "").strip()
+    if not text:
+        return text
+    lines = text.splitlines()
+    # On cherche la plus petite unité de répétition (1 à 8 lignes) dont le
+    # texte contient au moins `threshold` occurrences.
+    for unit in range(1, min(9, len(lines) + 1)):
+        block = "\n".join(lines[:unit])
+        if not block.strip():
+            continue
+        count = text.count(block)
+        if count >= threshold:
+            end = text.find(block) + len(block)
+            note = ("\n\n[... réponse tronquée automatiquement : "
+                    "le modèle se répétait]")
+            return text[:end].rstrip() + note
+    return text
+
+
 def _direct_answer(messages: list, on_delta=None) -> dict:
     """Réponse DIRECTE, sans outil.
 
@@ -383,6 +410,7 @@ def run_agent(user_input: str, history: list | None = None,
                     nudges += 1
                     continue
             final = reply.get("content") or "(réponse vide)"
+            final = _clean_repetition(final)
             return (_ensure_verified_math(final, history,
                                           kind=_infer_kind(user_input),
                                           want_method=_wants_method(user_input)),
@@ -462,6 +490,7 @@ def run_agent_stream(user_input: str, history: list | None = None,
                     nudges += 1
                     continue
             final = reply.get("content") or "(réponse vide)"
+            final = _clean_repetition(final)
             return (_ensure_verified_math(final, history,
                                           kind=_infer_kind(user_input),
                                           want_method=_wants_method(user_input)),

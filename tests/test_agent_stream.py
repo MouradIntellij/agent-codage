@@ -227,5 +227,32 @@ class TestMathGuards(unittest.TestCase):
         self.assertIn("∫ f(x) dx = x*log(x + 1) - x + log(x + 1) + C", out)
 
 
+class TestRepetitionGuard(unittest.TestCase):
+    """Le modèle local peut « coincer » et répéter le même paragraphe : on
+    coupe la réponse finale pour ne garder que la première occurrence."""
+
+    def test_texte_normal_inchange(self):
+        text = ("Voici le résultat.\n\nDeuxième paragraphe.\n\n"
+                "Troisième paragraphe.")
+        self.assertEqual(agent._clean_repetition(text), text)
+
+    def test_bloc_repete_coupe(self):
+        bloc = "Je vais lire le fichier pour obtenir plus d'informations."
+        text = "\n\n".join([bloc] * 8)
+        out = agent._clean_repetition(text)
+        self.assertEqual(out.count(bloc), 1)
+        self.assertIn("tronquée", out)
+
+    def test_phrase_repetee_dans_une_reponse(self):
+        ligne = "Voici le contenu du fichier."
+        out = agent._clean_repetition((ligne + "\n") * 6)
+        self.assertIn(ligne, out)
+        self.assertIn("tronquée", out)
+
+    def test_vide(self):
+        self.assertEqual(agent._clean_repetition(""), "")
+        self.assertEqual(agent._clean_repetition("   "), "")
+
+
 if __name__ == "__main__":
     unittest.main()
