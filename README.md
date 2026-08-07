@@ -113,6 +113,7 @@ Reconstruire l'exécutable après une modification de l'agent :
 | `llama3.2:latest` | ~2 Go | **Défaut** : tool-calling fiable, calcule et vérifie réellement (SymPy : intégrales, dérivées, équations), ~14 tok/s CPU |
 | `qwen2.5:latest` | ~4,7 Go | Belle prose, bons fichiers, MAIS saute les appels d'outil de calcul (réponse vide) |
 | `gemma2:9b` | ~6 Go | Très bon niveau de langue, à télécharger, plus lent |
+| `llava:7b` | ~4,7 Go | **Vision** : lit les images/captures d'écran (auto-installé par `Codeur.exe`, sautable) |
 
 Changer de modèle : variable d'environnement `AGENT_MODEL`, ou éditer `config.py`.
 
@@ -127,6 +128,7 @@ agent-codage/
 ├── agent.py       # 4. BOUCLE     : le cycle "raisonner puis agir"
 ├── llm.py         # 2. RÉSEAU     : le client HTTP vers le modèle
 ├── tools.py       # 3. OUTILS     : schémas JSON + implémentations Python
+├── dessin.py      #    IMAGES     : illustrations locales (Pillow) 🆕
 ├── prompt.py      # 1. PERSONNALITÉ : le system prompt (règles de travail)
 ├── config.py      # 0. RÉGLAGES   : modèle, URL, limites de sécurité
 └── public/
@@ -169,10 +171,14 @@ paramètres) + **fonction Python** (ce qui s'exécute réellement).
 | `edit_file` | remplacer une portion exacte |
 | `glob` | trouver des fichiers par motif |
 | `bash` | exécuter une commande (python, git, pytest…) |
+| `read_image` | décrire une image + transcrire son texte (vision ou OCR) |
+| `generer_image` | générer une image : Stable Diffusion local si présent, sinon illustration locale (graphiques, schémas, mind-maps) 🆕 |
+| `creer_powerpoint` | créer un `.pptx` de cours : puces, notes, images, liens vidéo 🆕 |
 
 > Les formats Office sont des **ZIP** (`zipfile`), les PDF des **flux déflatés**
 > (`zlib`) : tout vient de la bibliothèque standard, zéro dépendance. Limite
 > connue : un PDF **numérisé** (image) n'a pas de texte à extraire.
+> `creer_powerpoint` utilise **python-pptx** (seule dépendance ajoutée, hors ligne).
 
 ### 4. `agent.py` — la boucle ReAct
 Le cœur. Une simple boucle `for` :
@@ -206,10 +212,22 @@ de capture d'écran avec **Ctrl+V**) envoie des fichiers
 et des images avec la question. Ils sont sauvegardés dans `uploads/<session>/`
 et l'agent les lit avec ses outils. Pour les **images**, l'ordre des moyens
 disponibles (100 % hors ligne) est :
-1. un modèle de vision déjà installé dans Ollama (`llava`, `qwen2.5vl`,
-   `llama3.2-vision`, ...) — activable avec `ollama pull llava:7b` ;
+1. le modèle de vision **`llava:7b`, téléchargé automatiquement au premier
+   lancement** de `Codeur.exe` (sautable avec `CODEUR_NO_VISION=1`) ;
 2. sinon l'OCR Tesseract (`pytesseract` + `Pillow`), s'il est installé ;
-3. sinon un message qui explique comment activer la vision.
+3. sinon un message honnête — l'agent ne devine **jamais** le contenu d'une image.
+
+**Génération d'images** (`generer_image`, hors ligne) : moteurs testés dans
+l'ordre — (1) Stable Diffusion déjà lancé sur le poste (ComfyUI / Automatic1111,
+via `AGENT_SD_URL`), (2) `stable-diffusion.cpp` + modèle (`AGENT_SDCPP` +
+`AGENT_SD_MODEL`), (3) sinon **illustrations locales** (graphiques en barres ou
+en secteurs, organigrammes, mind-maps, tableaux de comparaison, formules) —
+toujours disponibles sur CPU. L'agent rapporte honnêtement le moteur utilisé.
+
+**PowerPoint de cours** (`creer_powerpoint`) : l'enseignant décrit son cours,
+l'agent construit le plan JSON et génère le `.pptx` avec puces, notes, images
+réelles et liens vidéo cliquables. Les URLs de vidéo ne sont **jamais**
+inventées : seuls les liens fournis sont utilisés.
 
 ---
 
@@ -251,7 +269,7 @@ python -m unittest discover -s tests -v
 
 Les tests ne touchent pas à Ollama : ils vérifient les outils et la
 normalisation des messages (les parties 100 % déterministes).
-**28 tests** (dont un vrai `.docx`, un `.pptx`, un `.xlsx` et un `.pdf`
+**86 tests** (dont un vrai `.docx`, un `.pptx`, un `.xlsx` et un `.pdf`
 construits à la main — `zipfile` + `zlib` natifs).
 
 ## Détails Windows

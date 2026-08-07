@@ -44,9 +44,21 @@ KEEP_ALIVE = int(os.environ.get("AGENT_KEEP_ALIVE", "1800"))
 # Les IMAGES jointes sont lues automatiquement : l'agent cherche un modèle de
 # vision déjà installé (llava, qwen2.5vl, llama3.2-vision...), sinon Tesseract
 # OCR (pytesseract + Pillow), sinon il explique comment les activer.
-# Pour ajouter la vision :  ollama pull llava:7b
-# Forcer un modèle de vision précis (même non auto-détecté, ex. gemma3:27b) :
-VISION_MODEL = os.environ.get("AGENT_VISION_MODEL", "")
+# Le modèle de vision est TÉLÉCHARGÉ AUTOMATIQUEMENT au premier lancement de
+# Codeur.exe (variable CODEUR_NO_VISION=1 pour sauter cette étape).
+VISION_MODEL = os.environ.get("AGENT_VISION_MODEL", "llava:7b")
+
+# --- Génération d'images (hors ligne) --------------------------------------
+# Ordre des moteurs utilisés par l'outil generer_image :
+#   1. Un moteur Stable Diffusion compatible API (ComfyUI / Automatic1111 /
+#      Forge) déjà lancé sur le poste -> AGENT_SD_URL (ex: http://127.0.0.1:7860)
+#   2. Un exécutable stable-diffusion.cpp avec son modèle .gguf ->
+#      AGENT_SDCPP (chemin de l'exe) et AGENT_SD_MODEL (chemin du .gguf)
+#   3. Sinon : illustrations vectorielles/rasterisées générées localement
+#      (graphiques, schémas, mind-maps, tableaux) - toujours disponible, CPU.
+SD_URL = os.environ.get("AGENT_SD_URL", "")
+SDCPP = os.environ.get("AGENT_SDCPP", "")
+SD_MODEL = os.environ.get("AGENT_SD_MODEL", "")
 
 # --- Sécurité / limites -----------------------------------------------------
 # Nombre maximum d'étapes "agent -> outil -> agent" avant de s'arrêter.

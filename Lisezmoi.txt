@@ -8,8 +8,12 @@ Premier lancement sur un poste (Internet requis une seule fois) :
   Codeur.exe installe tout seul, sans droits administrateur :
     1. Ollama (moteur IA local)  ~1,6 Go de telechargement
     2. Le modele llama3.2      ~2 Go de telechargement
-    3. Il cree une icone "Codeur" sur le bureau
+    3. Le modele de VISION llava:7b  ~4,7 Go (lecture des images/captures)
+       -> sauter cette etape : variable CODEUR_NO_VISION=1
+    4. Il cree une icone "Codeur" sur le bureau
   Suivez la progression dans la fenetre noire qui s'ouvre.
+  La vision sert a LIRE les images (captures d'ecran, QCM, photos de
+  documents). Sans elle, l'agent refuse honnetement de decrire une image.
 
 Lancements suivants :
   Double-cliquez sur l'icone "Codeur" du bureau : l'agent demarre
@@ -26,14 +30,32 @@ Pieces jointes (fichiers et images) :
   d'une capture d'ecran avec Ctrl+V) permet d'envoyer un fichier ou une
   image avec votre question (max 8 fichiers de 8 Mo).
   Les documents (PDF, Word, Excel, PowerPoint, texte, code) sont lus
-  automatiquement. Pour les IMAGES, trois cas possibles :
-    1. Le modele de vision est installe  -> l'agent decrit l'image et
-       transcrit le texte visible.
-    2. L'OCR Tesseract est installe      -> l'agent lit le texte de l'image.
-    3. Aucun des deux                    -> l'agent explique comment activer
-       la vision et propose une alternative.
-  Pour activer la vision (facultatif) :  ollama pull llava:7b
-  (commande dans un terminal, ~5 Go a telecharger une seule fois).
+  automatiquement. Les IMAGES (captures d'ecran, photos) sont decrites par
+  le modele de vision llava:7b installe au premier lancement, ou par l'OCR
+  Tesseract s'il est installe. Si aucun des deux n'est disponible, l'agent
+  le dit honnetement et ne devine jamais le contenu.
+
+Generation d'images (outil generer_image) :
+  L'agent peut creer des images. Trois moteurs possibles, dans l'ordre :
+    1. Stable Diffusion deja lance sur le poste (ComfyUI, Automatic1111...)
+       -> variable AGENT_SD_URL=http://127.0.0.1:7860
+    2. stable-diffusion.cpp avec un modele -> AGENT_SDCPP=chemin\sd-cli.exe
+       et AGENT_SD_MODEL=chemin\modele.safetensors
+    3. Sinon : ILLUSTRATIONS locales generees sur le poste (graphiques en
+       barres ou en secteurs, organigrammes, mind-maps, tableaux de
+       comparaison, formules) - disponibles toujours, meme sans Internet.
+  L'agent est honnete : il dit toujours quel moteur a produit l'image et ne
+  simule jamais une photo realiste quand seul un schema a ete cree.
+
+PowerPoint de cours (outil creer_powerpoint) :
+  L'agent cree des presentations .pptx pour enseignants : titres, puces,
+  notes, IMAGES (celles du dossier ou generees par generer_image) et LIENS
+  VIDEO cliquables. Exemple de demande :
+    "Cree un PowerPoint de cours sur les integrales : une diapo d'objectifs,
+     une diapo avec l'exemple ln(x+1), et ajoute un lien vers la video
+     https://www.youtube.com/watch?v=..."
+  Les fichiers .pptx sont crees dans le dossier presentations/ de l'espace
+  de travail.
 
 Premiere fois sur un poste de l'ecole :
   - Windows SmartScreen peut afficher "programme non reconnu" :

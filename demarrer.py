@@ -5,14 +5,21 @@ Comportement (l'ordre compte, tout est détecté, jamais réinstallé) :
      (officiel, une seule fois) et l'installe en silence (sans admin).
   2. Ollama répond-il ? Non -> on le démarre.
   3. Le modèle existe-t-il ? Non -> ollama pull (une seule fois).
-  4. Le raccourci bureau "Codeur" existe-t-il ? Non -> on le crée.
-  5. Serveur web + navigateur.
+  4. Le modèle de VISION existe-t-il ? Non -> ollama pull (une seule fois,
+     ~4,7 Go) pour lire les images/captures d'écran. Sautable avec
+     CODEUR_NO_VISION=1 ; un échec n'empêche pas le démarrage.
+  5. Le raccourci bureau "Codeur" existe-t-il ? Non -> on le crée.
+  6. Serveur web + navigateur.
 
 Ensuite, chaque double-clic sur l'icône est rapide : les vérifications
 ci-dessus prennent moins d'une seconde une fois tout installé.
 
 Variables utiles :
   CODEUR_NO_BROWSER=1   n'ouvre pas le navigateur (tests / serveur seul)
+  CODEUR_NO_VISION=1    ne télécharge pas le modèle de vision (lecture d'images)
+  AGENT_VISION_MODEL=…  modèle de vision à installer (défaut: llava:7b)
+  AGENT_SD_URL=…        moteur Stable Diffusion (ComfyUI/A1111) pour les images
+  AGENT_SDCPP=…         exe stable-diffusion.cpp (+ AGENT_SD_MODEL=… .gguf)
 """
 
 import os
@@ -25,8 +32,9 @@ import urllib.request
 import webbrowser
 
 import web
+import config
 
-MODEL = "llama3.2:latest"  # tool-calling fiable pour les calculs (SymPy)
+MODEL = config.MODEL  # tool-calling fiable pour les calculs (SymPy)
 OLLAMA_URL = "https://ollama.com/download/OllamaSetup.exe"
 OLLAMA_EXE = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
@@ -162,6 +170,37 @@ def ensure_model(model: str) -> bool:
         return False
 
 
+def ensure_vision() -> bool:
+    """Télécharge le modèle de vision (lecture d'images) si absent.
+
+    Sautable avec CODEUR_NO_VISION=1. Un échec n'empêche PAS de démarrer :
+    l'agent reste pleinement fonctionnel pour le texte et les documents.
+    """
+    model = (config.VISION_MODEL or "").strip()
+    if os.environ.get("CODEUR_NO_VISION") == "1":
+        print("[Vision] etape ignoree (CODEUR_NO_VISION=1).")
+        return True
+    if not model:
+        print("[Vision] aucun modele de vision configure.")
+        return True
+    if model_installed(model):
+        print(f"[Vision] lecture d'images disponible : {model}")
+        return True
+    print(f"[Vision] modele '{model}' absent -> telechargement (~4,7 Go, "
+          f"une seule fois). Sautable avec CODEUR_NO_VISION=1.")
+    try:
+        r = subprocess.run([_ollama_cmd(), "pull", model], timeout=7200)
+        if r.returncode == 0:
+            print(f"[Vision] modele de lecture d'images installe : {model}")
+            return True
+        print(f"[Vision] echec du telechargement de '{model}' (non bloquant). "
+              f"Les captures d'ecran ne seront pas decrites tant que la vision "
+              f"n'est pas installee.")
+    except Exception as e:
+        print(f"[Vision] echec (non bloquant) : {e}")
+    return False
+
+
 def _ps_quote(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
@@ -209,10 +248,26 @@ def ensure_all() -> bool:
     if not ensure_model(MODEL):
         print("[Erreur] le modele IA n'est pas disponible.")
         return False
+    ensure_vision()                     # lecture d'images : non bloquant
+    _image_gen_notice()
     lnk = create_shortcut()
     if lnk:
         print(f"[Raccourci] icone bureau creee : {lnk}")
     return True
+
+
+def _image_gen_notice() -> None:
+    """Informe sur les moteurs de génération d'images (si non configurés)."""
+    if (config.SD_URL or "").strip() or (
+            (config.SDCPP or "").strip() and (config.SD_MODEL or "").strip()):
+        print("[Images] moteur Stable Diffusion configure : generer_image "
+              "produira de vraies images.")
+    else:
+        print("[Images] aucune moteur Stable Diffusion configure : l'outil "
+              "generer_image produira des illustrations locales (graphiques, "
+              "schemas, mind-maps) et des images réalistes si vous lancez "
+              "ComfyUI/A1111 (AGENT_SD_URL) ou stable-diffusion.cpp "
+              "(AGENT_SDCPP + AGENT_SD_MODEL).")
 
 
 def main() -> None:

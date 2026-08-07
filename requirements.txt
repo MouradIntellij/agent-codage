@@ -1,2 +1,4 @@
-# Dépendances : une seule bibliothèque, pour rester pédagogique.
-requests>=2.31
+# Dépendances : volontairement limitées, tout reste hors ligne à l'usage.
+requests>=2.31          # appels HTTP vers Ollama (et moteur d'images optionnel)
+python-pptx>=1.0        # génération de présentations PowerPoint pour enseignants
+Pillow>=10.0            # illustrations/images générées localement + OCR (avec Tesseract)

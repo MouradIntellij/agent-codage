@@ -168,6 +168,59 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "generer_image",
+            "description": "Génère une IMAGE (PNG) à partir d'une description, 100 % "
+                           "hors ligne. Ordre des moteurs : (1) Stable Diffusion déjà "
+                           "lancé sur le poste (AGENT_SD_URL) ; (2) stable-diffusion.cpp "
+                           "avec son modèle (AGENT_SDCPP + AGENT_SD_MODEL) ; (3) sinon une "
+                           "ILLUSTRATION locale (graphiques en barres/secteurs, "
+                           "organigrammes, mind-maps, tableaux de comparaison, formules). "
+                           "Pour un graphique, fournissez les données en 'label=valeur' "
+                           "séparés par ';' (ex: '2020=80 ; 2021=90').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string",
+                               "description": "Description de l'image à générer, ou "
+                                              "données du graphique en 'label=valeur'"},
+                    "sortie": {"type": "string",
+                               "description": "Chemin du fichier PNG à créer "
+                                              "(défaut: dossier images/ de l'espace de travail)"},
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "creer_powerpoint",
+            "description": "Crée une présentation PowerPoint (.pptx) de cours pour "
+                           "enseignant à partir d'un PLAN en JSON : diapositives avec "
+                           "titres, puces, notes, IMAGES (chemins de fichiers PNG/JPG "
+                           "existants) et LIENS VIDÉO cliquables. Ne JAMAIS inventer "
+                           "d'URL de vidéo : n'utiliser que des liens réels fournis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan": {"type": "string",
+                             "description": "Plan JSON de la présentation, ex: "
+                                            "{\"titre\": \"Cours de maths\", \"auteur\": \"M. Dupont\", "
+                                            "\"slides\": [{\"titre\": \"Objectifs\", \"texte\": "
+                                            "[\"puce 1\", \"puce 2\"], \"notes\": \"À dire en classe\", "
+                                            "\"image\": \"chemin.png\", \"video\": {\"url\": "
+                                            "\"https://...\", \"texte\": \"Voir la vidéo\"}}]}"},
+                    "sortie": {"type": "string",
+                               "description": "Chemin du fichier .pptx à créer (défaut: "
+                                              "dossier presentations/ de l'espace de travail)"},
+                },
+                "required": ["plan"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "calcul_symbolique",
             "description": "Calcule et VÉRIFIE une expression mathématique avec SymPy "
                            "(intégrale, dérivée, équation, limite, simplification). "
@@ -325,6 +378,258 @@ def bash(command: str, timeout: int | None = None) -> str:
         output = output[:4000] + "\n...[sortie tronquée]"
     return (f"$ {command}  ({elapsed:.1f}s, code de sortie {proc.returncode})\n"
             f"{output}".rstrip())
+
+
+# --------------------------------------------------------------------------
+# Génération d'images (hors ligne) : Stable Diffusion si présent, sinon
+# illustrations locales. Toujours honnête : jamais d'image "de remplissage".
+# --------------------------------------------------------------------------
+
+_VALID_OUT_EXT = {".png", ".jpg", ".jpeg", ".svg", ".pptx"}
+
+
+def _resolve_sortie(sortie: str | None, folder: str, ext: str) -> str:
+    d = os.path.join(config.WORKSPACE, folder)
+    os.makedirs(d, exist_ok=True)
+    if not sortie:
+        return os.path.join(d, time.strftime("agent-%Y%m%d-%H%M%S") + ext)
+    s = str(sortie).strip().strip('"')
+    # Un dossier (ex: "images/") -> nom de fichier par défaut à l'intérieur.
+    if s.endswith(("/", "\\")) or os.path.isdir(s):
+        s = os.path.normpath(s)
+        os.makedirs(s, exist_ok=True)
+        return os.path.join(s, time.strftime("agent-%Y%m%d-%H%M%S") + ext)
+    # Un nom de fichier sans extension -> on la rajoute.
+    if os.path.splitext(s)[1].lower() not in _VALID_OUT_EXT:
+        s += ext
+    return os.path.abspath(s)
+
+
+def _try_sd_api(prompt: str, sortie: str) -> str | None:
+    """Moteur Stable Diffusion compatible API (ComfyUI / Automatic1111 / Forge)."""
+    url = (config.SD_URL or "").strip()
+    if not url:
+        return None
+    import requests as req
+    endpoint = url.rstrip("/") + "/sdapi/v1/txt2img"
+    try:
+        if req.get(endpoint, timeout=4).status_code != 200:
+            return None
+    except Exception:
+        return None
+    try:
+        r = req.post(endpoint, json={"prompt": prompt, "steps": 20,
+                                     "width": 512, "height": 512, "seed": -1},
+                     timeout=1200)
+        images = r.json().get("images")
+        if not images:
+            return None
+        import base64
+        with open(sortie, "wb") as fh:
+            fh.write(base64.b64decode(images[0]))
+        return f"OK: image générée par Stable Diffusion dans {sortie}."
+    except Exception:
+        return None
+
+
+def _try_sd_cpp(prompt: str, sortie: str) -> str | None:
+    """Exécutable stable-diffusion.cpp + modèle .gguf/.safetensors configurés."""
+    exe = (config.SDCPP or "").strip()
+    model = (config.SD_MODEL or "").strip()
+    if not exe or not model:
+        return None
+    if not (os.path.exists(exe) and os.path.exists(model)):
+        return None
+    try:
+        proc = subprocess.run(
+            [exe, "--model", model, "--prompt", prompt, "--output", sortie,
+             "--height", "512", "--width", "512", "--steps", "20",
+             "--cfg-scale", "5", "--seed", "-1"],
+            capture_output=True, text=True, timeout=1200)
+        if proc.returncode == 0 and os.path.exists(sortie):
+            return f"OK: image générée par stable-diffusion.cpp dans {sortie}."
+    except Exception:
+        pass
+    return None
+
+
+def generer_image(prompt: str, sortie: str | None = None) -> str:
+    """Génère une image hors ligne : SD local si présent, sinon illustration.
+
+    Retourne TOUJOURS un message honnête : quel moteur a produit l'image, et
+    le chemin du fichier créé (ou une erreur guidante si les données manquent).
+    """
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "ERREUR: description de l'image vide."
+    out = _resolve_sortie(sortie, "images", ".png")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    for engine in (_try_sd_api, _try_sd_cpp):
+        msg = engine(prompt, out)
+        if msg:
+            return msg
+    import dessin
+    return dessin.generer(prompt, out)
+
+
+# --------------------------------------------------------------------------
+# Création de présentations PowerPoint (.pptx) pour enseignants
+# (python-pptx, embarqué). Images réelles + liens vidéo cliquables.
+# --------------------------------------------------------------------------
+
+_PPTX_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff"}
+
+
+def _add_pptx_bullets(tf, items: list) -> None:
+    from pptx.util import Pt
+    for idx, item in enumerate(items):
+        item = str(item)
+        p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
+        level = 1 if item.startswith("  ") else 0
+        p.level = level
+        p.text = item.strip().lstrip("-*•")
+        p.font.size = Pt(22 if level == 0 else 18)
+
+
+def creer_powerpoint(plan: str, sortie: str | None = None) -> str:
+    """Crée un .pptx de cours à partir d'un plan JSON (slides, puces, notes,
+    images existantes, liens vidéo). Ne crée jamais d'image de remplacement."""
+    import json
+    try:
+        data = json.loads(plan)
+    except Exception as err:
+        return f"ERREUR: plan JSON invalide ({err}). Fournissez un objet JSON."
+    if not isinstance(data, dict):
+        return "ERREUR: le plan doit être un objet JSON {...}."
+    slides = data.get("slides") or []
+    if not isinstance(slides, list) or not slides:
+        return "ERREUR: le plan doit contenir une liste non vide 'slides'."
+
+    out = _resolve_sortie(sortie, "presentations", ".pptx")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    try:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
+        from pptx.enum.shapes import MSO_SHAPE
+    except ImportError:
+        return ("ERREUR: python-pptx n'est pas installé. "
+                "Installez-le avec: python -m pip install python-pptx.")
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+    NAVY = RGBColor(15, 23, 42)
+    BLUE = RGBColor(56, 189, 248)
+    WHITE = RGBColor(255, 255, 255)
+    TEXT_C = RGBColor(30, 41, 59)
+
+    # --- Diapositive de titre -------------------------------------------------
+    s = prs.slides.add_slide(blank)
+    band = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0,
+                              prs.slide_width, Inches(7.5))
+    band.fill.solid()
+    band.fill.fore_color.rgb = NAVY
+    band.line.fill.background()
+    title = s.shapes.add_textbox(Inches(0.8), Inches(2.4),
+                                 prs.slide_width - Inches(1.6), Inches(2))
+    tf = title.text_frame
+    tf.word_wrap = True
+    tf.paragraphs[0].text = str(data.get("titre") or "Présentation")
+    tf.paragraphs[0].font.size = Pt(44)
+    tf.paragraphs[0].font.bold = True
+    tf.paragraphs[0].font.color.rgb = WHITE
+    sub = (data.get("auteur") or "") + \
+        ("   •   " + time.strftime("%d/%m/%Y") if data.get("auteur") else "")
+    if sub:
+        st = s.shapes.add_textbox(Inches(0.8), Inches(4.6),
+                                  prs.slide_width - Inches(1.6), Inches(1))
+        stf = st.text_frame
+        stf.paragraphs[0].text = sub
+        stf.paragraphs[0].font.size = Pt(20)
+        stf.paragraphs[0].font.color.rgb = BLUE
+
+    images_ok = 0
+    videos_ok = 0
+    images_skipped = []
+
+    for num, slide in enumerate(slides, start=1):
+        if not isinstance(slide, dict):
+            continue
+        s = prs.slides.add_slide(blank)
+        # bandeau de titre
+        band = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0,
+                                  prs.slide_width, Inches(1.05))
+        band.fill.solid()
+        band.fill.fore_color.rgb = NAVY
+        band.line.fill.background()
+        t = s.shapes.add_textbox(Inches(0.6), Inches(0.18),
+                                 prs.slide_width - Inches(1.2), Inches(0.75))
+        tf = t.text_frame
+        tf.word_wrap = True
+        tf.paragraphs[0].text = str(slide.get("titre") or f"Diapositive {num}")
+        tf.paragraphs[0].font.size = Pt(30)
+        tf.paragraphs[0].font.bold = True
+        tf.paragraphs[0].font.color.rgb = WHITE
+
+        # texte + image à droite
+        body = s.shapes.add_textbox(Inches(0.6), Inches(1.4),
+                                    Inches(7.6), Inches(5.6))
+        tf = body.text_frame
+        tf.word_wrap = True
+        _add_pptx_bullets(tf, slide.get("texte") or [])
+
+        img_path = (slide.get("image") or "").strip()
+        if img_path:
+            real = _existing_path(img_path)
+            ext = os.path.splitext(real)[1].lower()
+            if os.path.isfile(real) and ext in _PPTX_IMAGE_EXTS:
+                try:
+                    s.shapes.add_picture(real, Inches(8.4), Inches(1.6),
+                                         height=Inches(4.6))
+                    images_ok += 1
+                except Exception:
+                    images_skipped.append(img_path)
+            else:
+                images_skipped.append(img_path)
+
+        video = slide.get("video") or {}
+        vurl = (video.get("url") or "").strip()
+        if vurl:
+            vtxt = (video.get("texte") or "Voir la vidéo").strip()
+            box = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
+                                     Inches(0.6), Inches(6.4), Inches(7.6), Inches(0.7))
+            box.fill.solid()
+            box.fill.fore_color.rgb = BLUE
+            box.line.fill.background()
+            vf = box.text_frame
+            p = vf.paragraphs[0]
+            run = p.add_run()
+            run.text = "▶  " + vtxt
+            run.font.size = Pt(18)
+            run.font.color.rgb = NAVY
+            run.hyperlink.address = vurl
+            videos_ok += 1
+
+        notes = (slide.get("notes") or "").strip()
+        if notes:
+            s.notes_slide.notes_text_frame.text = notes
+
+    try:
+        prs.save(out)
+    except OSError as err:
+        return f"ERREUR: impossible d'écrire le fichier: {err}"
+
+    n = len(slides)
+    msg = (f"OK: présentation créée dans {out} "
+           f"({n} diapositive(s) de contenu + 1 titre, {images_ok} image(s) "
+           f"intégrée(s), {videos_ok} lien(s) vidéo).")
+    if images_skipped:
+        msg += ("\nImage(s) NON intégrée(s) (fichier introuvable ou non image) : "
+                + ", ".join(images_skipped))
+    return msg
 
 
 # --------------------------------------------------------------------------
@@ -939,6 +1244,8 @@ EXECUTORS = {
     "bash": bash,
     "calcul_symbolique": calcul_symbolique,
     "read_image": read_image,
+    "generer_image": generer_image,
+    "creer_powerpoint": creer_powerpoint,
 }
 
 
