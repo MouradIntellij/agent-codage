@@ -10,8 +10,10 @@ renvoie le résultat textuel au modèle. C'est ça, un "tool" d'agent.
 """
 
 import glob as globlib
+import math
 import os
 import re
+import shutil
 import subprocess
 import time
 import zipfile
@@ -638,68 +640,161 @@ def creer_powerpoint(plan: str, sortie: str | None = None) -> str:
 # --------------------------------------------------------------------------
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tiff", ".jfif"}
-VISION_MODEL_HINTS = ("llava", "qwen2.5vl", "qwen2-vl", "llama3.2-vision",
-                      "minicpm-v", "moondream", "bakllava")
+# Ordre de préférence : les modèles récents lisent bien mieux le texte des
+# captures d'écran que llava (qui hallucine). llava reste le dernier recours.
+VISION_MODEL_HINTS = ("qwen2.5vl", "qwen2-vl", "llama3.2-vision", "gemma3",
+                      "minicpm-v", "moondream", "llava")
+_VISION_MAX_GB = 9.0  # au-delà, le modèle rame trop longtemps sur un CPU seul
 
 
 def _available_vision_model() -> str | None:
     """Trouve un modèle de vision déjà téléchargé dans Ollama (ou None).
 
     Un modèle forcé par la variable d'environnement AGENT_VISION_MODEL est
-    prioritaire (s'il est bien installé) ; sinon on cherche par indice de nom.
+    prioritaire (s'il est bien installé) ; sinon on cherche par indice de nom
+    ou par la capacité "vision" annoncée par Ollama, en préférant un modèle
+    assez léger pour tourner sur CPU. On ne renvoie JAMAIS un modèle sans
+    capacité vision (l'envoi d'images échouerait).
     """
     import requests as req
     try:
         data = req.get(f"{config.OLLAMA_URL}/api/tags", timeout=5).json()
     except Exception:
         return None
-    names = [m.get("name", "") for m in data.get("models", [])]
+    installed = []
+    for m in data.get("models", []):
+        caps = m.get("capabilities") or []
+        name = m.get("name", "")
+        installed.append({
+            "name": name, "size": m.get("size") or 0,
+            "vision": "vision" in caps or _hint_for(name) is not None,
+        })
     forced = (config.VISION_MODEL or "").strip()
     if forced:
-        if forced in names:
-            return forced
-        for n in names:
-            if n == forced or n.startswith(forced + ":"):
-                return n
+        for mod in installed:
+            if mod["name"] == forced or mod["name"].startswith(forced + ":"):
+                return mod["name"]
+    fallback = None
     for hint in VISION_MODEL_HINTS:
-        for n in names:
-            if n.startswith(hint):
-                return n
+        match = None
+        for mod in installed:
+            if mod["name"].startswith(hint):
+                if match is None or mod["size"] < match[1]:
+                    match = (mod["name"], mod["size"])
+        if match:
+            if match[1] <= _VISION_MAX_GB * 1024 ** 3:
+                return match[0]
+            fallback = fallback or match[0]   # trop lourd, gardé en secours
+    # Dernier recours : un modèle qui annonce explicitement la capacité vision,
+    # même s'il n'est pas dans nos indices de noms (nouveau modèle, renommé...).
+    light = None
+    for mod in installed:
+        if not mod["vision"] or mod["name"].startswith(tuple(VISION_MODEL_HINTS)):
+            continue
+        if light is None or mod["size"] < light[1]:
+            light = (mod["name"], mod["size"])
+    if light and light[1] <= _VISION_MAX_GB * 1024 ** 3:
+        return light[0]
+    return fallback or None
+
+
+def _hint_for(name: str) -> str | None:
+    """Indice de modèle vision dont le nom commence par ``name``, sinon None."""
+    for hint in VISION_MODEL_HINTS:
+        if name.startswith(hint):
+            return hint
     return None
 
 
+def _image_tiles(path: str, max_w: int = 1024, max_h: int = 768) -> list:
+    """Découpe une grande image en tuiles lisibles pour le modèle de vision.
+
+    Les petits modèles de vision (llava...) réduisent l'image à ~336 px :
+    sur une capture d'écran large, le texte devient illisible et le modèle
+    INVENTE du contenu. Découper en tuiles (avec chevauchement) garde un
+    texte réellement lisible.
+    """
+    from PIL import Image
+    im = Image.open(path)
+    if im.mode != "RGB":
+        im = im.convert("RGB")
+    w, h = im.size
+    if max(w, h) < 320:                     # toute petite image : on agrandit
+        scale = 480 / max(w, h)
+        im = im.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        w, h = im.size
+    if w <= max_w and h <= max_h:
+        return [im]
+    cols = max(1, math.ceil(w / max_w))
+    rows = max(1, math.ceil(h / max_h))
+    tiles = []
+    for r in range(rows):
+        for c in range(cols):
+            x0 = max(0, int(w * c / cols) - 16)
+            x1 = min(w, int(w * (c + 1) / cols) + 16)
+            y0 = max(0, int(h * r / rows) - 16)
+            y1 = min(h, int(h * (r + 1) / rows) + 16)
+            tiles.append(im.crop((x0, y0, x1, y1)))
+    return tiles
+
+
+_VISION_PROMPT = (
+    "Tu es un lecteur de captures d'écran précis et honnête.\n"
+    "1. Décris en UNE phrase ce que montre l'image.\n"
+    "2. Transcris mot pour mot TOUT le texte visible (questions, réponses, "
+    "boutons, titres), en gardant la structure.\n"
+    "RÈGLE ABSOLUE : n'invente JAMAIS de phrase, numéro, question ou réponse. "
+    "Si un texte n'est pas parfaitement lisible, écris [texte illisible] à sa "
+    "place. Si l'image ne contient aucun texte, dis simplement : Aucun texte visible."
+)
+
+
 def _vision_describe(path: str, model: str) -> str:
-    """Envoie l'image au modèle de vision local et renvoie sa description."""
+    """Envoie l'image (éventuellement découpée en tuiles) au modèle de vision."""
     import base64
+    import io
     import requests as req
-    with open(path, "rb") as fh:
-        b64 = base64.b64encode(fh.read()).decode("ascii")
-    payload = {
-        "model": model,
-        "messages": [{
-            "role": "user",
-            "content": ("Décris cette image en français : ce qu'elle montre, "
-                        "et transcris TOUT le texte visible mot pour mot "
-                        "(utile pour une capture d'écran, une photo de "
-                        "document ou un exercice)."),
-            "images": [b64],
-        }],
-        "stream": False,
-        "options": {"num_ctx": 4096},
-    }
-    try:
-        resp = req.post(f"{config.OLLAMA_URL}/api/chat", json=payload, timeout=240)
-    except Exception as err:
-        return f"ERREUR: le modèle de vision '{model}' n'a pas répondu: {err}"
-    if resp.status_code != 200:
-        return (f"ERREUR: modèle de vision '{model}' "
-                f"(HTTP {resp.status_code}): {resp.text[:300]}")
-    resp.encoding = "utf-8"
-    text = (resp.json().get("message", {}).get("content") or "").strip()
-    if not text:
-        return f"ERREUR: le modèle de vision '{model}' n'a rien retourné."
-    return (f"Description de l'image {os.path.basename(path)} "
-            f"(modèle {model}) :\n{text}")
+    tiles = _image_tiles(path)
+    parts: list[str] = []
+    errors: list[str] = []
+    for i, tile in enumerate(tiles, start=1):
+        buf = io.BytesIO()
+        tile.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        content = _VISION_PROMPT
+        if len(tiles) > 1:
+            content += f"\n(partie {i}/{len(tiles)} de l'image)"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": content,
+                          "images": [b64]}],
+            "stream": False,
+            "options": {"num_ctx": 2048, "temperature": 0.1},
+        }
+        try:
+            resp = req.post(f"{config.OLLAMA_URL}/api/chat",
+                            json=payload, timeout=180)
+        except Exception as err:
+            errors.append(f"'{model}' n'a pas répondu: {err}")
+            continue
+        if resp.status_code != 200:
+            errors.append(f"'{model}' (HTTP {resp.status_code}): {resp.text[:300]}")
+            continue
+        resp.encoding = "utf-8"
+        text = (resp.json().get("message", {}).get("content") or "").strip()
+        if not text:
+            errors.append(f"'{model}' n'a rien retourné.")
+            continue
+        if len(tiles) > 1:
+            parts.append(f"[Partie {i}/{len(tiles)} de l'image]\n{text}")
+        else:
+            parts.append(text)
+    if errors and not parts:
+        return errors[0]
+    body = "\n\n".join(parts)
+    suffix = (f"\n\n(Attention : {'; '.join(errors)})" if errors else "")
+    return (f"Description de l'image {os.path.basename(path)} (modèle {model}) :\n"
+            f"{body}{suffix}")
 
 
 def _ocr_text(path: str) -> str:
@@ -720,12 +815,86 @@ def _ocr_text(path: str) -> str:
             f"(Tesseract) :\n{text[:DOC_TEXT_LIMIT]}")
 
 
-def read_image(path: str) -> str:
-    """Décrit une image (contenu + texte visible).
+# OCR NATIF WINDOWS (Windows.Media.Ocr) via Windows PowerShell 5.1 : exact,
+# gratuit, 100 % hors ligne, présent sur tout Windows 10/11. Indispensable
+# pour LIRE le texte des captures d'écran : un modèle de vision local comme
+# llava INVENTE du contenu quand le texte devient trop petit à ~336 px.
+_POWERSHELL_OCR_SCRIPT = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime]
+$null = [Windows.Storage.StorageFile,Windows.Foundation,ContentType=WindowsRuntime]
+function Await($WinRtTask, $ResultType) {
+    $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+        Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+                       $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+    $netTask = $asTask.MakeGenericMethod($ResultType).Invoke($null, @($WinRtTask))
+    $netTask.Wait(-1) | Out-Null
+    $netTask.Result
+}
+$path = $args[0]
+try {
+    $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) ([Windows.Storage.StorageFile])
+    $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    if (-not $engine) { Write-Output '__NO_OCR_ENGINE__'; exit }
+    $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+    foreach ($line in $result.Lines) { Write-Output $line.Text }
+} catch {
+    Write-Output '__OCR_ERROR__'
+}
+"""
 
-    Ordre des moyens disponibles, 100 % hors ligne :
-      1. modèle de vision local déjà installé dans Ollama (llava, ...) ;
-      2. OCR Tesseract (s'il est installé avec pytesseract + PIL) ;
+
+def _windows_ocr(path: str) -> str:
+    """OCR natif Windows : texte EXACT d'une capture d'écran.
+
+    Renvoie '' si indisponible (pas de Windows PowerShell 5.1, pas de module
+    de langue OCR, ou échec). Le texte renvoyé fait foi : il n'est pas
+    "interprété" par un modèle.
+    """
+    import tempfile
+    ps = shutil.which("powershell")      # Windows PowerShell 5.1 (pas pwsh)
+    if not ps:
+        return ""
+    path = os.path.abspath(path)         # WinRT exige un chemin ABSOLU
+    fd, script = tempfile.mkstemp(suffix=".ps1")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(_POWERSHELL_OCR_SCRIPT)
+        try:
+            r = subprocess.run(
+                [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                 "Bypass", "-File", script, path],
+                capture_output=True, timeout=120)
+        except Exception:
+            return ""
+        if r.returncode != 0:
+            return ""
+        out = r.stdout.decode("utf-8", errors="replace")
+    finally:
+        try:
+            os.remove(script)
+        except Exception:
+            pass
+    lines = [ln.strip() for ln in out.splitlines()
+             if ln.strip() and ln.strip() not in ("__NO_OCR_ENGINE__",
+                                                  "__OCR_ERROR__")]
+    if not lines:
+        return ""
+    return (f"Texte extrait de l'image {os.path.basename(path)} "
+            f"par OCR Windows (exact) :\n" + "\n".join(lines[:80]))
+
+
+def read_image(path: str) -> str:
+    """Décrit une image (contenu + texte visible). 100 % hors ligne :
+
+      1. OCR Windows natif (exact) puis Tesseract -> le TEXTE fait foi ;
+      2. modèle de vision local (llava...) -> description de ce que montre
+         l'image (photos, schémas) ;
       3. sinon, un message qui explique comment activer la vision.
     """
     path = _existing_path(path)
@@ -738,12 +907,24 @@ def read_image(path: str) -> str:
     if size > 10 * 1024 * 1024:
         return "ERREUR: image trop volumineuse (> 10 Mo)."
 
+    parts: list[str] = []
+    # 1) Texte EXACT (OCR Windows natif, sinon Tesseract). C'est lui qui fait
+    #    foi pour lire une question, un exercice, une capture d'écran.
+    ocr = _windows_ocr(path) or _ocr_text(path)
+    if ocr:
+        body = ocr.split("\n", 1)[1] if "\n" in ocr else ocr
+        if len(body) >= 40:
+            # Une capture d'écran avec du texte : l'OCR suffit, exact et rapide.
+            # Inutile (et risqué) de laisser llava réécrire le texte de travers.
+            return ocr
+        parts.append(ocr)
+    # 2) Description du modèle de vision (approximative, complémentaire) :
+    #    utile pour une photo ou un schéma, où l'OCR ne trouve rien.
     vision = _available_vision_model()
     if vision:
-        return _vision_describe(path, vision)
-    ocr = _ocr_text(path)
-    if ocr:
-        return ocr
+        parts.append(_vision_describe(path, vision))
+    if parts:
+        return "\n\n".join(parts)
     return (f"Le fichier '{path}' est une image ({size:,} o). Impossible de la "
             f"DÉCRIRE hors ligne : aucun modèle de vision ni OCR installé.\n"
             f"Pour activer la vision, installez l'un des deux :\n"

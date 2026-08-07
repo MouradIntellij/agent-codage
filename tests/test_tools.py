@@ -292,13 +292,18 @@ class ReadImageTests(unittest.TestCase):
                                                "un écran de calcul")
         with unittest.mock.patch.object(tools, "_available_vision_model",
                                         return_value="llava:7b"), \
-             unittest.mock.patch.object(tools, "_vision_describe", fake):
+             unittest.mock.patch.object(tools, "_vision_describe", fake), \
+             unittest.mock.patch.object(tools, "_windows_ocr",
+                                        return_value=""), \
+             unittest.mock.patch.object(tools, "_ocr_text", return_value=""):
             out = tools.read_image(self.png)
         self.assertIn("Description (modèle llava:7b)", out)
 
     def test_avec_ocr_seulement(self):
         with unittest.mock.patch.object(tools, "_available_vision_model",
                                         return_value=None), \
+             unittest.mock.patch.object(tools, "_windows_ocr",
+                                        return_value=""), \
              unittest.mock.patch.object(tools, "_ocr_text",
                                         return_value="Texte OCR : 2 + 2 = 4"):
             out = tools.read_image(self.png)
@@ -308,11 +313,62 @@ class ReadImageTests(unittest.TestCase):
     def test_ni_vision_ni_ocr(self):
         with unittest.mock.patch.object(tools, "_available_vision_model",
                                         return_value=None), \
+             unittest.mock.patch.object(tools, "_windows_ocr",
+                                        return_value=""), \
              unittest.mock.patch.object(tools, "_ocr_text", return_value=""):
             out = tools.read_image(self.png)
         self.assertIn("image", out.lower())
         self.assertIn("llava", out)
         self.assertNotIn("ERREUR", out)
+
+    def test_ocr_windows_prioritaire_sur_la_vision(self):
+        # Le texte exact (OCR Windows) est renvoyé AVANT la description vision :
+        # c'est lui qui fait foi pour lire une question d'exercice.
+        fake = unittest.mock.Mock(return_value="Description (modèle llava:7b) : "
+                                               "des boutons à l'écran")
+        with unittest.mock.patch.object(tools, "_available_vision_model",
+                                        return_value="llava:7b"), \
+             unittest.mock.patch.object(tools, "_vision_describe", fake), \
+             unittest.mock.patch.object(tools, "_windows_ocr",
+                                        return_value="Texte extrait par OCR Windows"
+                                                     " (exact) :\n2 + 2 = 4"), \
+             unittest.mock.patch.object(tools, "_ocr_text", return_value=""):
+            out = tools.read_image(self.png)
+        self.assertLess(out.index("Texte extrait"), out.index("Description"))
+
+
+class WindowsOcrTests(unittest.TestCase):
+
+    def test_powershell_absent_retourne_vide(self):
+        with unittest.mock.patch.object(tools.shutil, "which",
+                                        return_value=None):
+            self.assertEqual(tools._windows_ocr("x.png"), "")
+
+    def test_pas_de_module_de_langue_retourne_vide(self):
+        fake_run = unittest.mock.Mock()
+        fake_run.return_value.returncode = 0
+        fake_run.return_value.stdout = b"__NO_OCR_ENGINE__\n"
+        with unittest.mock.patch.object(tools, "subprocess", create=False) as sp, \
+             unittest.mock.patch.object(tools.shutil, "which",
+                                        return_value="powershell.exe"):
+            sp.run = fake_run
+            sp.run.return_value = fake_run.return_value
+            self.assertEqual(tools._windows_ocr("x.png"), "")
+
+    def test_texte_decoupe_proprement(self):
+        fake_run = unittest.mock.Mock()
+        fake_run.return_value.returncode = 0
+        fake_run.return_value.stdout = ("Première ligne\n\nDeuxième ligne\n"
+                                        "__NO_OCR_ENGINE__\n").encode("utf-8")
+        with unittest.mock.patch.object(tools, "subprocess", create=False) as sp, \
+             unittest.mock.patch.object(tools.shutil, "which",
+                                        return_value="powershell.exe"):
+            sp.run = fake_run
+            sp.run.return_value = fake_run.return_value
+            out = tools._windows_ocr("x.png")
+        self.assertIn("Première ligne", out)
+        self.assertIn("Deuxième ligne", out)
+        self.assertNotIn("__NO_OCR_ENGINE__", out)
 
 
 class VisionModelDetectionTests(unittest.TestCase):
@@ -345,11 +401,26 @@ class VisionModelDetectionTests(unittest.TestCase):
         import requests
         with unittest.mock.patch("requests.get") as fake:
             fake.return_value.json.return_value = {"models": [
-                {"name": "llama3.2:latest"}, {"name": "gemma3:27b"}]}
+                {"name": "llama3.2:latest"},
+                {"name": "qwen2.5-coder:1.5b-base"}]}
             old = config.VISION_MODEL
             try:
                 config.VISION_MODEL = ""
                 self.assertIsNone(tools._available_vision_model())
+            finally:
+                config.VISION_MODEL = old
+
+    def test_capacite_vision_annoncee_detectee(self):
+        # Un modèle hors liste d'indices mais qui annonce "vision" est retenu.
+        import requests
+        with unittest.mock.patch("requests.get") as fake:
+            fake.return_value.json.return_value = {"models": [
+                {"name": "mini-gpt-8b", "size": 4 * 1024 ** 3,
+                 "capabilities": ["vision"]}]}
+            old = config.VISION_MODEL
+            try:
+                config.VISION_MODEL = ""
+                self.assertEqual(tools._available_vision_model(), "mini-gpt-8b")
             finally:
                 config.VISION_MODEL = old
 
