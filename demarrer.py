@@ -34,7 +34,7 @@ import webbrowser
 import web
 import config
 
-MODEL = config.MODEL  # tool-calling fiable pour les calculs (SymPy)
+MODEL = config.MODEL  # qwen2.5:latest par défaut (bon raisonnement QCM)
 OLLAMA_URL = "https://ollama.com/download/OllamaSetup.exe"
 OLLAMA_EXE = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),

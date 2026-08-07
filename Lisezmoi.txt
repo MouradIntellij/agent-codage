@@ -7,7 +7,7 @@ Contenu de ce dossier :
 Premier lancement sur un poste (Internet requis une seule fois) :
   Codeur.exe installe tout seul, sans droits administrateur :
     1. Ollama (moteur IA local)  ~1,6 Go de telechargement
-    2. Le modele llama3.2      ~2 Go de telechargement
+    2. Le modele qwen2.5      ~2 Go de telechargement
     3. Le modele de VISION llava:7b  ~4,7 Go (lecture des images/captures)
        -> sauter cette etape : variable CODEUR_NO_VISION=1
     4. Il cree une icone "Codeur" sur le bureau

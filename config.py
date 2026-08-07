@@ -12,10 +12,12 @@ import os
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 # Modèle utilisé (doit savoir faire du "tool calling").
-# Par défaut llama3.2:latest : fiable pour le tool-calling mathématique
-# (intégrales, dérivées, équations vérifiées par SymPy) et 2x plus rapide.
-# qwen2.5:latest est plus éloquent mais saute les appels d'outil de calcul.
-MODEL = os.environ.get("AGENT_MODEL", "llama3.2:latest")
+# Par défaut qwen2.5:latest : meilleur raisonnement (QCM, réponses d'exercices)
+# et prose de qualité, pour ~7 tokens/s en CPU.
+# Si un calcul symbolique (SymPy) rend une réponse vide, repasser sur
+# llama3.2:latest via AGENT_MODEL : il est plus fiable pour le tool-calling
+# mathématique.
+MODEL = os.environ.get("AGENT_MODEL", "qwen2.5:latest")
 
 # Température du modèle (0 = déterministe, 1 = créatif)
 TEMPERATURE = 0.2
@@ -35,10 +37,10 @@ NUM_CTX = int(os.environ.get("AGENT_NUM_CTX", "8192"))
 KEEP_ALIVE = int(os.environ.get("AGENT_KEEP_ALIVE", "1800"))
 
 # Modèle utilisé. Pour un ordinateur SANS carte graphique (CPU seul) :
+#   - qwen2.5:latest  (~7  tokens/s) beau niveau de langue et bon raisonnement
+#                      (QCM, exercices) <-- défaut
 #   - llama3.2:latest (~14 tokens/s) fiable pour le tool-calling calcul
-#                      (SymPy : intégrales, dérivées, équations) <-- défaut
-#   - qwen2.5:latest  (~7  tokens/s) belle prose, bons fichiers, MAIS saute
-#                      les appels d'outil de calcul (réponse vide)
+#                      (SymPy : intégrales, dérivées, équations)
 #   - gemma2:9b       (à télécharger) très bon niveau de langue, plus lent
 # Surcharger avec la variable d'environnement AGENT_MODEL.
 # Les IMAGES jointes sont lues automatiquement : l'agent cherche un modèle de

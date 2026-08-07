@@ -883,6 +883,9 @@ def _windows_ocr(path: str) -> str:
     lines = [ln.strip() for ln in out.splitlines()
              if ln.strip() and ln.strip() not in ("__NO_OCR_ENGINE__",
                                                   "__OCR_ERROR__")]
+    # Nettoyage : les boutons radio / cases sont souvent lus comme un « O »
+    # isolé. Les supprimer évite de perturber le comptage des options d'un QCM.
+    lines = [ln for ln in lines if ln != "O" and ln != "o"]
     if not lines:
         return ""
     return (f"Texte extrait de l'image {os.path.basename(path)} "

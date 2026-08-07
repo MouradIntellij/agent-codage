@@ -15,8 +15,8 @@ commandes, voir le résultat, puis **continuer seul** jusqu'à terminer la tâch
 
 ```bash
 # 1. Installer Ollama (une fois) : https://ollama.com  puis:
-ollama pull llama3.2:latest   # défaut : tool-calling fiable pour les calculs (SymPy)
-#    (qwen2.5:latest = plus éloquent mais saute les calculs par outils)
+ollama pull qwen2.5:latest   # défaut : bon raisonnement (QCM, exercices)
+#    (llama3.2:latest = plus rapide, plus fiable pour les calculs par outils)
 # 2. Lancer le serveur Ollama (l'app le fait automatiquement)
 ollama serve
 
@@ -110,8 +110,8 @@ Reconstruire l'exécutable après une modification de l'agent :
 
 | Modèle | Taille | Pourquoi |
 |---|---|---|
-| `llama3.2:latest` | ~2 Go | **Défaut** : tool-calling fiable, calcule et vérifie réellement (SymPy : intégrales, dérivées, équations), ~14 tok/s CPU |
-| `qwen2.5:latest` | ~4,7 Go | Belle prose, bons fichiers, MAIS saute les appels d'outil de calcul (réponse vide) |
+| `qwen2.5:latest` | ~4,7 Go | **Défaut** : bon raisonnement (QCM, réponses d'exercices), belle prose, ~7 tok/s CPU |
+| `llama3.2:latest` | ~2 Go | Plus rapide, tool-calling fiable pour les calculs (SymPy : intégrales, dérivées), ~14 tok/s CPU |
 | `gemma2:9b` | ~6 Go | Très bon niveau de langue, à télécharger, plus lent |
 | `llava:7b` | ~4,7 Go | **Vision** : lit les images/captures d'écran (auto-installé par `Codeur.exe`, sautable) |
 
