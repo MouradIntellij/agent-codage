@@ -254,5 +254,52 @@ class TestRepetitionGuard(unittest.TestCase):
         self.assertEqual(agent._clean_repetition("   "), "")
 
 
+class TestImageGuards(unittest.TestCase):
+    """L'agent ne doit JAMAIS inventer le contenu d'une image que read_image
+    n'a pas pu décrire (aucun modèle de vision / OCR)."""
+
+    BLOCKED_HIST = [
+        {"role": "tool", "content":
+         "Le fichier '...\\1.png' est une image (45 647 o). Impossible de la "
+         "DÉCRIRE hors ligne : aucun modèle de vision ni OCR installé."},
+    ]
+
+    def test_pas_de_read_image_bloque_rien_change(self):
+        hist = [{"role": "tool", "content":
+                 "Description de l'image 1.png (modèle llava:7b) :\nun écran"}]
+        out = agent._ensure_verified_image("L'image montre un écran.", hist)
+        self.assertEqual(out, "L'image montre un écran.")
+
+    def test_reponse_honnête_conservee(self):
+        out = agent._ensure_verified_image(
+            "Je ne peux pas décrire l'image : aucun modèle de vision ni OCR "
+            "installé. Installez la vision avec ollama pull llava:7b.",
+            self.BLOCKED_HIST)
+        self.assertIn("vision", out)
+
+    def test_description_inventee_remplacee(self):
+        fabriquee = ("L'image contient une liste de tâches : faire des courses, "
+                     "payer les factures, réparer le PC.")
+        out = agent._ensure_verified_image(fabriquee, self.BLOCKED_HIST)
+        self.assertNotIn("courses", out)
+        self.assertIn("ne peux pas décrire", out)
+        self.assertIn("llava", out)
+
+    def test_bloqueur_injecte_une_fois(self):
+        history = list(self.BLOCKED_HIST)
+        agent._maybe_block_image(history, {"name": "read_image",
+                                           "arguments": {"path": "1.png"}},
+                                 "Impossible de la DÉCRIRE hors ligne : "
+                                 "aucun modèle de vision ni OCR installé.")
+        agent._maybe_block_image(history, {"name": "read_image",
+                                           "arguments": {"path": "1.png"}},
+                                 "Impossible de la DÉCRIRE hors ligne : "
+                                 "aucun modèle de vision ni OCR installé.")
+        nb = sum(1 for m in history
+                 if m.get("role") == "user" and "INTERDICTION FORMELLE"
+                 in m.get("content", ""))
+        self.assertEqual(nb, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

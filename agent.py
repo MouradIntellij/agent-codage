@@ -336,6 +336,73 @@ def _clean_repetition(text: str, threshold: int = 3) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# Garde anti-hallucination d'IMAGE : quand read_image n'a pas pu décrire le
+# fichier (aucun modèle de vision ni OCR installé), le modèle ne doit JAMAIS
+# inventer son contenu. On lui interdit explicitement, et on vérifie sa
+# réponse finale de façon déterministe.
+# ---------------------------------------------------------------------------
+
+IMAGE_IMPOSSIBLE_MARKER = "aucun modèle de vision ni OCR installé"
+
+IMAGE_BLOCKED_FINAL = (
+    "Je ne peux pas décrire cette image : aucun modèle de vision ni OCR n'est "
+    "installé sur ce poste (fonctionnement 100 % hors ligne). Je ne vais donc "
+    "pas inventer son contenu.\n\n"
+    "Pour que je puisse la décrire, deux options :\n"
+    "  1. ollama pull llava:7b   (modèle de vision local, à installer une fois)\n"
+    "  2. Installer Tesseract OCR + pytesseract + Pillow (texte des images)\n\n"
+    "En attendant, je peux résumer le fichier par son nom ou lire un document "
+    "avec read_document."
+)
+
+IMAGE_BLOCKER = (
+    "read_image n'a PAS pu décrire l'image : aucun modèle de vision ni OCR "
+    "installé. Tu n'as donc AUCUNE information sur son contenu.\n"
+    "INTERDICTION FORMELLE : ne décris PAS le contenu de l'image, n'invente "
+    "rien, ne liste aucun texte imaginaire.\n"
+    "Réponds en français, brièvement : que l'image ne peut pas être décrite "
+    "hors ligne, propose d'installer la vision (ollama pull llava:7b) ou "
+    "l'OCR Tesseract, et propose une alternative (lire un document avec "
+    "read_document)."
+)
+
+
+def _maybe_block_image(history: list, call: dict, result: str) -> None:
+    """Après un read_image sans vision : interdit au modèle d'inventer le
+    contenu (une seule injection par tour)."""
+    if call["name"] == "read_image" and IMAGE_IMPOSSIBLE_MARKER in (result or ""):
+        already = any(
+            m.get("role") == "user" and "INTERDICTION FORMELLE"
+            in (m.get("content") or "")
+            for m in history)
+        if not already:
+            history.append({"role": "user", "content": IMAGE_BLOCKER})
+
+
+def _ensure_verified_image(final: str, history: list) -> str:
+    """Vérifie que la réponse finale n'invente pas le contenu d'une image que
+    read_image n'a pas pu décrire.
+
+    - aucun read_image bloqué dans ce tour : on ne change rien ;
+    - le modèle a reconnu l'impossibilité (ne peux pas / impossible + vision,
+      ocr, tesseract...) : on garde sa réponse ;
+    - sinon (description fabriquée) : on la remplace par le message honnête.
+    """
+    blocked = any(
+        m.get("role") == "tool" and IMAGE_IMPOSSIBLE_MARKER
+        in (m.get("content") or "")
+        for m in history)
+    if not blocked:
+        return final
+    low = (final or "").lower()
+    admits = any(k in low for k in ("ne peux", "ne puis", "impossible de"))
+    tools_ = any(k in low for k in ("vision", "ocr", "tesseract", "llava"))
+    if admits and tools_:
+        return final
+    return IMAGE_BLOCKED_FINAL
+
+
 def _direct_answer(messages: list, on_delta=None) -> dict:
     """Réponse DIRECTE, sans outil.
 
@@ -411,6 +478,7 @@ def run_agent(user_input: str, history: list | None = None,
                     continue
             final = reply.get("content") or "(réponse vide)"
             final = _clean_repetition(final)
+            final = _ensure_verified_image(final, history)
             return (_ensure_verified_math(final, history,
                                           kind=_infer_kind(user_input),
                                           want_method=_wants_method(user_input)),
@@ -429,6 +497,8 @@ def run_agent(user_input: str, history: list | None = None,
                 "tool_call_id": call["id"],
                 "content": result,
             })
+            # Image illisible : interdiction formelle d'inventer son contenu.
+            _maybe_block_image(history, call, result)
             # Anti-boucle : même commande qui échoue deux fois -> conseil.
             key = _call_key(call["name"], call["arguments"])
             if (key == prev_key and repeat_hints < MAX_REPEAT_HINTS
@@ -491,6 +561,7 @@ def run_agent_stream(user_input: str, history: list | None = None,
                     continue
             final = reply.get("content") or "(réponse vide)"
             final = _clean_repetition(final)
+            final = _ensure_verified_image(final, history)
             return (_ensure_verified_math(final, history,
                                           kind=_infer_kind(user_input),
                                           want_method=_wants_method(user_input)),
@@ -508,6 +579,8 @@ def run_agent_stream(user_input: str, history: list | None = None,
                 "tool_call_id": call["id"],
                 "content": result,
             })
+            # Image illisible : interdiction formelle d'inventer son contenu.
+            _maybe_block_image(history, call, result)
             # Anti-boucle : même commande qui échoue deux fois -> conseil.
             key = _call_key(call["name"], call["arguments"])
             if (key == prev_key and repeat_hints < MAX_REPEAT_HINTS
