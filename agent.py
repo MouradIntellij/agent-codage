@@ -361,10 +361,12 @@ IMAGE_BLOCKER = (
     "installé. Tu n'as donc AUCUNE information sur son contenu.\n"
     "INTERDICTION FORMELLE : ne décris PAS le contenu de l'image, n'invente "
     "rien, ne liste aucun texte imaginaire.\n"
-    "Réponds en français, brièvement : que l'image ne peut pas être décrite "
-    "hors ligne, propose d'installer la vision (ollama pull llava:7b) ou "
-    "l'OCR Tesseract, et propose une alternative (lire un document avec "
-    "read_document)."
+    "Adresse-toi à l'utilisateur directement, dans TES PROPRES MOTS, comme un "
+    "assistant aimable : explique brièvement que l'image ne peut pas être "
+    "décrite hors ligne, propose d'installer la vision (ollama pull llava:7b) "
+    "ou l'OCR Tesseract, et propose une alternative (lire un document avec "
+    "read_document). Ne recopie PAS le message de l'outil, ne t'excuse pas, "
+    "réponds en une courte réponse."
 )
 
 
@@ -459,6 +461,7 @@ def run_agent(user_input: str, history: list | None = None,
     prev_key = None
     any_tool = False
     used_math_tool = False
+    read_image_results: dict[str, str] = {}   # chemin -> résultat (anti doublon)
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat(history, tools=tools.TOOLS)
         history.append(reply)             # le message de l'assistant est conservé
@@ -486,11 +489,21 @@ def run_agent(user_input: str, history: list | None = None,
 
         for call in calls:                # exécution des outils demandés
             any_tool = True
-            if call["name"] == "calcul_symbolique":
-                used_math_tool = True
-            result = tools.execute_tool(call["name"], call["arguments"])
-            if on_tool:
-                on_tool(call, result)
+            key = _call_key(call["name"], call["arguments"])
+            if call["name"] == "read_image" and key in read_image_results:
+                # Déjà lu à l'instant : pas de nouvelle exécution, on redonne
+                # le résultat et on enjoint de répondre.
+                result = (read_image_results[key]
+                          + "\n\n[Déjà obtenu : réponds directement, "
+                          "ne relance pas read_image.]")
+            else:
+                if call["name"] == "calcul_symbolique":
+                    used_math_tool = True
+                result = tools.execute_tool(call["name"], call["arguments"])
+                if call["name"] == "read_image":
+                    read_image_results[key] = result
+                if on_tool:
+                    on_tool(call, result)
             # La réponse de l'outil est renvoyée au modèle avec son id.
             history.append({
                 "role": "tool",
@@ -500,7 +513,6 @@ def run_agent(user_input: str, history: list | None = None,
             # Image illisible : interdiction formelle d'inventer son contenu.
             _maybe_block_image(history, call, result)
             # Anti-boucle : même commande qui échoue deux fois -> conseil.
-            key = _call_key(call["name"], call["arguments"])
             if (key == prev_key and repeat_hints < MAX_REPEAT_HINTS
                     and _looks_failed(result)):
                 history.append({"role": "user", "content": REPEAT_HINT})
@@ -543,6 +555,7 @@ def run_agent_stream(user_input: str, history: list | None = None,
     prev_key = None
     any_tool = False
     used_math_tool = False
+    read_image_results: dict[str, str] = {}   # chemin -> résultat (anti doublon)
     for step in range(config.MAX_ITERATIONS):
         reply = llm.chat_stream(history, tools=tools.TOOLS, on_delta=on_delta)
         history.append(reply)
@@ -569,11 +582,21 @@ def run_agent_stream(user_input: str, history: list | None = None,
 
         for call in calls:                # exécution des outils demandés
             any_tool = True
-            if call["name"] == "calcul_symbolique":
-                used_math_tool = True
-            result = tools.execute_tool(call["name"], call["arguments"])
-            if on_tool:
-                on_tool(call, result)
+            key = _call_key(call["name"], call["arguments"])
+            if call["name"] == "read_image" and key in read_image_results:
+                # Déjà lu à l'instant : pas de nouvelle exécution, on redonne
+                # le résultat et on enjoint de répondre.
+                result = (read_image_results[key]
+                          + "\n\n[Déjà obtenu : réponds directement, "
+                          "ne relance pas read_image.]")
+            else:
+                if call["name"] == "calcul_symbolique":
+                    used_math_tool = True
+                result = tools.execute_tool(call["name"], call["arguments"])
+                if call["name"] == "read_image":
+                    read_image_results[key] = result
+                if on_tool:
+                    on_tool(call, result)
             history.append({
                 "role": "tool",
                 "tool_call_id": call["id"],

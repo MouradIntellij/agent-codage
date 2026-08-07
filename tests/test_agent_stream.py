@@ -301,5 +301,40 @@ class TestImageGuards(unittest.TestCase):
         self.assertEqual(nb, 1)
 
 
+class TestDedupImage(unittest.TestCase):
+    """Si le modèle rappelle read_image deux fois sur le MÊME chemin, on ne
+    ré-exécute pas l'outil (résultat déjà en main) et on répond honnêtement."""
+
+    IMG = ("Le fichier '...\\1.png' est une image (45 647 o). Impossible de la "
+           "DÉCRIRE hors ligne : aucun modèle de vision ni OCR installé.")
+
+    def _tool_reply(self, cid):
+        return {"role": "assistant", "content": "je lis l'image",
+                "tool_calls": [{"id": cid, "type": "function",
+                                "function": {"name": "read_image",
+                                             "arguments": {"path": "1.png"}}}]}
+
+    def test_read_image_execute_une_seule_fois(self):
+        fake = FakeChatStream([
+            self._tool_reply("c1"),
+            self._tool_reply("c2"),          # même chemin : ne doit pas repartir
+            {"role": "assistant",
+             "content": "Je ne peux pas décrire l'image : aucun modèle de "
+                        "vision ni OCR installé. Installez la vision avec "
+                        "ollama pull llava:7b."},
+        ])
+        executed = []
+        def fake_execute(name, args):
+            executed.append((name, args))
+            return self.IMG
+        with patch.object(agent.llm, "chat", fake), \
+             patch.object(agent.tools, "execute_tool", fake_execute):
+            response, _ = agent.run_agent(
+                "que contient cette image ?  Fichier: 1.png")
+        self.assertEqual(executed, [("read_image", {"path": "1.png"})])
+        self.assertIn("ne peux pas", response)
+        self.assertNotIn("courses", response)
+
+
 if __name__ == "__main__":
     unittest.main()

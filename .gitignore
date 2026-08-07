@@ -18,3 +18,7 @@ Desktop.ini
 
 # Build etudiant
 Codeur-etudiant.zip
+
+# Pieces jointes uploadées à l'exécution
+uploads/
+*.log
