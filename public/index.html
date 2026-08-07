@@ -148,15 +148,14 @@
 
   <div id="messages"></div>
 
-  <div id="hint">L'agent peut lire, créer, modifier du code, chercher des mots dans un dossier, résumer des documents et exécuter des commandes. Joignez un fichier ou une image avec 📎.</div>
+  <div id="hint">L'agent peut lire, créer, modifier du code, chercher des mots dans un dossier, résumer des documents et exécuter des commandes. Joignez un fichier ou une image avec 📎, ou collez une capture d'écran (Ctrl+V).</div>
   <div id="attachments"></div>
   <footer>
     <button id="attachBtn" title="Joindre un fichier ou une image">📎</button>
     <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.odt,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.c,.cpp,.h,.java,.rs,.go,.tex,image/*">
     <textarea id="input" rows="2" placeholder="Posez votre question au Codeur… (Entrée = envoyer, Maj+Entrée = nouvelle ligne)"></textarea>
     <button id="send">Envoyer</button>
-  </footer>
-</div>
+  </footer></div>
 
 <script>
   const messagesEl = document.getElementById("messages");
@@ -243,6 +242,22 @@
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
       addFiles(Array.from(e.dataTransfer.files));
     }
+  });
+  document.addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    const images = Array.from(items).filter(it => it.type && IMAGE_TYPES.test(it.type));
+    if (!images.length) return;   // pas d'image : laisser le collage de texte normal
+    e.preventDefault();
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const files = images.map((it, i) => {
+      const f = it.getAsFile();
+      if (!f) return null;
+      let ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+      const suffix = images.length > 1 ? "-" + (i + 1) : "";
+      return new File([f], "capture-" + ts + suffix + "." + ext, { type: f.type });
+    }).filter(Boolean);
+    if (files.length) addFiles(files);
   });
 
   function addMessage(role, text) {
@@ -449,7 +464,7 @@
     "Demandez-moi de créer ou modifier du code, d'expliquer des fichiers, de " +
     "chercher des mots dans un dossier, de résumer un document (Word, PDF, " +
     "Excel, PowerPoint) ou d'exécuter des commandes. Vous pouvez aussi joindre " +
-    "des fichiers ou des images (bouton 📎 ou glisser-déposer).");
+    "des fichiers ou des images (bouton 📎, glisser-déposer ou Ctrl+V).");
   const welcome = document.querySelector(".msg.agent");
   addCopyButton(welcome, () => welcome.textContent);
   inputEl.focus();

@@ -22,8 +22,9 @@ Hors ligne :
   Fermez la fenetre noire pour arreter l'agent.
 
 Pieces jointes (fichiers et images) :
-  Dans le chat web, le bouton 📎 (ou glisser-deposer) permet d'envoyer
-  un fichier ou une image avec votre question (max 8 fichiers de 8 Mo).
+  Dans le chat web, le bouton 📎 (ou glisser-deposer, ou copier-coller
+  d'une capture d'ecran avec Ctrl+V) permet d'envoyer un fichier ou une
+  image avec votre question (max 8 fichiers de 8 Mo).
   Les documents (PDF, Word, Excel, PowerPoint, texte, code) sont lus
   automatiquement. Pour les IMAGES, trois cas possibles :
     1. Le modele de vision est installe  -> l'agent decrit l'image et
